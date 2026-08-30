@@ -1,5 +1,5 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TabManager, tabAccents } from '../src/tab-manager';
 import type { FolderToolkitSettings } from '../src/types';
 
@@ -26,6 +26,34 @@ function createLeaf(containerEl: HTMLElement, path: string): WorkspaceLeaf {
 		view: { containerEl },
 		getViewState: () => ({ type: 'markdown', state: { file: path } }),
 	} as unknown as WorkspaceLeaf;
+}
+
+function singleTab(path: string): { workspace: HTMLElement; header: HTMLElement; leaf: WorkspaceLeaf } {
+	const workspace = document.createElement('div');
+	const tabs = document.createElement('div');
+	tabs.className = 'workspace-tabs';
+	const header = document.createElement('div');
+	header.className = 'workspace-tab-header';
+	const leafElement = document.createElement('div');
+	leafElement.className = 'workspace-leaf';
+	const content = document.createElement('div');
+	leafElement.append(content);
+	tabs.append(header, leafElement);
+	workspace.append(tabs);
+	return { workspace, header, leaf: createLeaf(content, path) };
+}
+
+function watchDomWrites() {
+	return {
+		addClass: vi.spyOn(DOMTokenList.prototype, 'add'),
+		removeClass: vi.spyOn(DOMTokenList.prototype, 'remove'),
+		setStyle: vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty'),
+		removeStyle: vi.spyOn(CSSStyleDeclaration.prototype, 'removeProperty'),
+	};
+}
+
+function restoreDomWriteSpies(spies: ReturnType<typeof watchDomWrites>): void {
+	for (const spy of Object.values(spies)) spy.mockRestore();
 }
 
 describe('open note tabs', () => {
@@ -100,5 +128,92 @@ describe('open note tabs', () => {
 		expect(header.classList.contains('ft-tab-background')).toBe(true);
 		expect(header.style.getPropertyValue('--ft-tab-text')).toBe('#8E44AD');
 		expect(header.style.getPropertyValue('--ft-tab-background')).toBe('#2C3E50');
+	});
+
+	it('performs no class or style writes when tab state is unchanged', () => {
+		const { workspace, leaf } = singleTab('C/note.md');
+		const app = {
+			workspace: {
+				containerEl: workspace,
+				iterateAllLeaves: (callback: (item: WorkspaceLeaf) => unknown) => callback(leaf),
+			},
+		} as unknown as App;
+		const manager = new TabManager(app, () => settings('background'));
+		manager.reconcile();
+		const writes = watchDomWrites();
+		manager.reconcile();
+		expect(writes.addClass).not.toHaveBeenCalled();
+		expect(writes.removeClass).not.toHaveBeenCalled();
+		expect(writes.setStyle).not.toHaveBeenCalled();
+		expect(writes.removeStyle).not.toHaveBeenCalled();
+		restoreDomWriteSpies(writes);
+		manager.stop();
+	});
+
+	it('switches only the background treatment while preserving tab text', () => {
+		const { workspace, header, leaf } = singleTab('C/note.md');
+		let currentSettings = settings('background');
+		const app = {
+			workspace: {
+				containerEl: workspace,
+				iterateAllLeaves: (callback: (item: WorkspaceLeaf) => unknown) => callback(leaf),
+			},
+		} as unknown as App;
+		const manager = new TabManager(app, () => currentSettings);
+		manager.reconcile();
+		currentSettings = settings('border');
+		const writes = watchDomWrites();
+		manager.reconcile();
+		expect(writes.addClass).toHaveBeenCalledTimes(1);
+		expect(writes.addClass).toHaveBeenCalledWith('ft-tab-border');
+		expect(writes.removeClass).toHaveBeenCalledTimes(1);
+		expect(writes.removeClass).toHaveBeenCalledWith('ft-tab-background');
+		expect(writes.setStyle).toHaveBeenCalledTimes(1);
+		expect(writes.setStyle).toHaveBeenCalledWith('--ft-tab-border', '#2C3E50');
+		expect(writes.removeStyle).toHaveBeenCalledTimes(1);
+		expect(writes.removeStyle).toHaveBeenCalledWith('--ft-tab-background');
+		expect(header.style.getPropertyValue('--ft-tab-text')).toBe('#8E44AD');
+		restoreDomWriteSpies(writes);
+		manager.stop();
+	});
+
+	it('cleans connected headers when styling is switched off', () => {
+		const { workspace, header, leaf } = singleTab('C/note.md');
+		let currentSettings = settings('background');
+		const app = {
+			workspace: {
+				containerEl: workspace,
+				iterateAllLeaves: (callback: (item: WorkspaceLeaf) => unknown) => callback(leaf),
+			},
+		} as unknown as App;
+		const manager = new TabManager(app, () => currentSettings);
+		manager.reconcile();
+		currentSettings = settings('off');
+		manager.reconcile();
+		expect(header.classList.contains('ft-tab-has-text')).toBe(false);
+		expect(header.classList.contains('ft-tab-background')).toBe(false);
+		expect(header.style.getPropertyValue('--ft-tab-text')).toBe('');
+		expect(header.style.getPropertyValue('--ft-tab-background')).toBe('');
+	});
+
+	it('styles newly reported tabs and clears headers no longer backed by a leaf', () => {
+		const { workspace, header, leaf } = singleTab('C/note.md');
+		let leaves: WorkspaceLeaf[] = [];
+		const app = {
+			workspace: {
+				containerEl: workspace,
+				iterateAllLeaves: (callback: (item: WorkspaceLeaf) => unknown) => leaves.forEach(callback),
+			},
+		} as unknown as App;
+		const manager = new TabManager(app, () => settings('background'));
+		manager.reconcile();
+		expect(header.classList.contains('ft-tab-background')).toBe(false);
+		leaves = [leaf];
+		manager.reconcile();
+		expect(header.classList.contains('ft-tab-background')).toBe(true);
+		leaves = [];
+		manager.reconcile();
+		expect(header.classList.contains('ft-tab-background')).toBe(false);
+		expect(header.style.getPropertyValue('--ft-tab-background')).toBe('');
 	});
 });

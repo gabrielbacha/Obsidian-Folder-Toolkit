@@ -26,6 +26,6 @@ export default defineConfig([
 			"obsidianmd/rule-custom-message": "off",
 		},
 	},
+	{ files: ["vitest.config.ts"], rules: { "obsidianmd/no-nodejs-modules": "off" } },
 	{ files: ["tests/**/*.ts"], rules: { "obsidianmd/prefer-create-el": "off" } },
 ]);
-

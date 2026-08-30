@@ -180,7 +180,10 @@ export default class FolderToolkitPlugin extends Plugin {
 		});
 		if (this.focusPath) this.focusPath = replacePathRoot(this.focusPath, oldPath, file.path);
 		if (changed) await this.persist();
-		else this.explorer.reconcileSoon();
+		else {
+			this.explorer.reconcileSoon();
+			this.tabs.reconcileSoon();
+		}
 	}
 
 	private async handleDelete(file: TAbstractFile): Promise<void> {

@@ -1,5 +1,6 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
 import { resolveAppearance } from './appearance-resolver';
+import { syncClass, syncStyle } from './dom-sync';
 import type { FolderToolkitSettings } from './types';
 
 const TAB_CLASSES = ['ft-tab-has-text', 'ft-tab-background', 'ft-tab-border'] as const;
@@ -19,7 +20,6 @@ export function tabAccents(path: string, settings: FolderToolkitSettings): TabAc
 }
 
 export class TabManager {
-	private observer: MutationObserver | null = null;
 	private frame: number | null = null;
 
 	constructor(
@@ -28,10 +28,6 @@ export class TabManager {
 	) {}
 
 	start(): void {
-		const root = this.app.workspace.containerEl;
-		const Observer = root.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
-		this.observer = new Observer(() => this.reconcileSoon());
-		this.observer.observe(root, { childList: true, subtree: true });
 		this.reconcileSoon();
 	}
 
@@ -45,33 +41,38 @@ export class TabManager {
 
 	reconcile(): void {
 		const settings = this.getSettings();
-		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) {
-			this.clearHeader(header);
+		const processedHeaders = new Set<HTMLElement>();
+
+		if (settings.tabStyle !== 'off') {
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				const state = leaf.getViewState();
+				const path = state.type === 'markdown' && typeof state.state?.file === 'string'
+					? state.state.file
+					: null;
+				if (!path) return;
+				const header = this.findHeader(leaf);
+				if (!header) return;
+
+				processedHeaders.add(header);
+				const accents = tabAccents(path, settings);
+				const useBackground = accents.background !== null && settings.tabStyle === 'background';
+				const useBorder = accents.background !== null && settings.tabStyle === 'border';
+
+				syncClass(header, 'ft-tab-has-text', accents.text !== null);
+				syncClass(header, 'ft-tab-background', useBackground);
+				syncClass(header, 'ft-tab-border', useBorder);
+				syncStyle(header.style, '--ft-tab-text', accents.text);
+				syncStyle(header.style, '--ft-tab-background', useBackground ? accents.background : null);
+				syncStyle(header.style, '--ft-tab-border', useBorder ? accents.background : null);
+			});
 		}
-		if (settings.tabStyle === 'off') return;
-		this.app.workspace.iterateAllLeaves((leaf) => {
-			const state = leaf.getViewState();
-			const path = state.type === 'markdown' && typeof state.state?.file === 'string'
-				? state.state.file
-				: null;
-			if (!path) return;
-			const header = this.findHeader(leaf);
-			if (!header) return;
-			const accents = tabAccents(path, settings);
-			if (accents.text) {
-				header.classList.add('ft-tab-has-text');
-				header.style.setProperty('--ft-tab-text', accents.text);
-			}
-			if (!accents.background) return;
-			const treatment = settings.tabStyle === 'background' ? 'background' : 'border';
-			header.classList.add(`ft-tab-${treatment}`);
-			header.style.setProperty(`--ft-tab-${treatment}`, accents.background);
-		});
+
+		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) {
+			if (!processedHeaders.has(header)) this.clearHeader(header);
+		}
 	}
 
 	stop(): void {
-		this.observer?.disconnect();
-		this.observer = null;
 		if (this.frame !== null) window.cancelAnimationFrame(this.frame);
 		this.frame = null;
 		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) {
@@ -92,7 +93,7 @@ export class TabManager {
 	}
 
 	private clearHeader(header: HTMLElement): void {
-		header.classList.remove(...TAB_CLASSES);
-		for (const property of TAB_PROPERTIES) header.style.removeProperty(property);
+		for (const className of TAB_CLASSES) syncClass(header, className, false);
+		for (const property of TAB_PROPERTIES) syncStyle(header.style, property, null);
 	}
 }

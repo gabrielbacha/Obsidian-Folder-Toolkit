@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-folder-toolkit",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Color, organize, hide, and focus folders in Obsidian's file explorer.",
 	"main": "main.js",
 	"type": "module",
@@ -13,10 +13,18 @@
 		"check": "npm run test && npm run build && npm run lint && npm run validate",
 		"version": "node version-bump.mjs && git add manifest.json versions.json"
 	},
-	"keywords": ["obsidian", "folders", "file-explorer", "focus", "colors"],
+	"keywords": [
+		"obsidian",
+		"folders",
+		"file-explorer",
+		"focus",
+		"colors"
+	],
 	"author": "Gabriel Bacha",
 	"license": "MIT",
-	"engines": { "node": ">=20" },
+	"engines": {
+		"node": ">=20"
+	},
 	"devDependencies": {
 		"@types/node": "^22.15.17",
 		"@typescript-eslint/parser": "^8.59.1",

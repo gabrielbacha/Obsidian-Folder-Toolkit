@@ -1,5 +1,6 @@
 import type { App } from 'obsidian';
 import { resolveAppearance } from './appearance-resolver';
+import { syncClass, syncStyle } from './dom-sync';
 import { focusRelation, hiddenBy } from './visibility';
 import type { FolderToolkitSettings } from './types';
 
@@ -90,34 +91,25 @@ export class ExplorerManager {
 		settings: FolderToolkitSettings,
 		focusPath: string | null,
 	): void {
-		this.clearRow(row);
 		const appearance = resolveAppearance(path, settings);
-		if (appearance.text) {
-			row.addClass('ft-has-text');
-			row.style.setProperty('--ft-text-light', appearance.text.foregroundLight);
-			row.style.setProperty('--ft-text-dark', appearance.text.foregroundDark);
-		}
-		if (appearance.background) {
-			row.addClass('ft-has-background');
-			row.style.setProperty('--ft-background', appearance.background.hex);
-		}
-		if (appearance.border && row.hasClass('nav-folder')) {
-			row.addClass(appearance.border.style === 'box' ? 'ft-border-box' : 'ft-border-rail');
-			row.style.setProperty('--ft-border', appearance.border.color.hex);
-		}
-
-		if (!settings.showHiddenItems && hiddenBy(path, settings.hiddenPaths)) {
-			row.addClass('ft-permanent-hidden');
-		}
-
 		const relation = focusRelation(path, focusPath);
-		row.toggleClass('ft-focus-hidden', relation === 'outside');
-		row.toggleClass('ft-focus-ancestor', relation === 'ancestor');
-		row.toggleClass('ft-focus-root', relation === 'root');
-		if (relation === 'ancestor') {
-			row.removeClass('ft-border-box', 'ft-border-rail');
-			row.style.removeProperty('--ft-border');
-		}
+		const hasText = appearance.text !== null;
+		const hasBackground = appearance.background !== null;
+		const hasBorder = appearance.border !== null && row.classList.contains('nav-folder') && relation !== 'ancestor';
+
+		syncClass(row, 'ft-has-text', hasText);
+		syncClass(row, 'ft-has-background', hasBackground);
+		syncClass(row, 'ft-border-box', hasBorder && appearance.border?.style === 'box');
+		syncClass(row, 'ft-border-rail', hasBorder && appearance.border?.style === 'rail');
+		syncClass(row, 'ft-permanent-hidden', !settings.showHiddenItems && hiddenBy(path, settings.hiddenPaths) !== null);
+		syncClass(row, 'ft-focus-hidden', relation === 'outside');
+		syncClass(row, 'ft-focus-ancestor', relation === 'ancestor');
+		syncClass(row, 'ft-focus-root', relation === 'root');
+
+		syncStyle(row.style, '--ft-text-light', appearance.text?.foregroundLight ?? null);
+		syncStyle(row.style, '--ft-text-dark', appearance.text?.foregroundDark ?? null);
+		syncStyle(row.style, '--ft-background', appearance.background?.hex ?? null);
+		syncStyle(row.style, '--ft-border', hasBorder ? appearance.border?.color.hex ?? null : null);
 	}
 
 	private clearRoot(root: HTMLElement): void {
@@ -125,7 +117,7 @@ export class ExplorerManager {
 	}
 
 	private clearRow(row: HTMLElement): void {
-		row.removeClass(...MANAGED_CLASSES);
-		for (const property of MANAGED_PROPERTIES) row.style.removeProperty(property);
+		for (const className of MANAGED_CLASSES) syncClass(row, className, false);
+		for (const property of MANAGED_PROPERTIES) syncStyle(row.style, property, null);
 	}
 }

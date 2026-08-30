@@ -35,6 +35,19 @@ function mockApp(containerEl: HTMLElement): App {
 	} as unknown as App;
 }
 
+function watchDomWrites() {
+	return {
+		addClass: vi.spyOn(DOMTokenList.prototype, 'add'),
+		removeClass: vi.spyOn(DOMTokenList.prototype, 'remove'),
+		setStyle: vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty'),
+		removeStyle: vi.spyOn(CSSStyleDeclaration.prototype, 'removeProperty'),
+	};
+}
+
+function restoreDomWriteSpies(spies: ReturnType<typeof watchDomWrites>): void {
+	for (const spy of Object.values(spies)) spy.mockRestore();
+}
+
 describe('ExplorerManager', () => {
 	let root: HTMLElement;
 	let settings: FolderToolkitSettings;
@@ -115,6 +128,50 @@ describe('ExplorerManager', () => {
 		manager.reconcile();
 		expect(folderRow.hasClass('ft-border-rail')).toBe(false);
 		expect(noteRow.hasClass('ft-has-background')).toBe(false);
+		manager.stop();
+	});
+
+	it('performs no class or style writes when reconciliation state is unchanged', () => {
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
+		manager.syncLeaves();
+		manager.reconcile();
+		const writes = watchDomWrites();
+		manager.reconcile();
+		expect(writes.addClass).not.toHaveBeenCalled();
+		expect(writes.removeClass).not.toHaveBeenCalled();
+		expect(writes.setStyle).not.toHaveBeenCalled();
+		expect(writes.removeStyle).not.toHaveBeenCalled();
+		restoreDomWriteSpies(writes);
+		manager.stop();
+	});
+
+	it('writes only the changed explorer effect and removes it when cleared', () => {
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
+		manager.syncLeaves();
+		manager.reconcile();
+		settings.appearanceRules.Other = {
+			background: { choice: { kind: 'preset', slot: 2 }, cascade: true },
+		};
+		const addWrites = watchDomWrites();
+		manager.reconcile();
+		expect(addWrites.addClass).toHaveBeenCalledTimes(1);
+		expect(addWrites.addClass).toHaveBeenCalledWith('ft-has-background');
+		expect(addWrites.setStyle).toHaveBeenCalledTimes(1);
+		expect(addWrites.setStyle).toHaveBeenCalledWith('--ft-background', '#8E44AD');
+		expect(addWrites.removeClass).not.toHaveBeenCalled();
+		expect(addWrites.removeStyle).not.toHaveBeenCalled();
+		restoreDomWriteSpies(addWrites);
+
+		delete settings.appearanceRules.Other;
+		const removeWrites = watchDomWrites();
+		manager.reconcile();
+		expect(removeWrites.removeClass).toHaveBeenCalledTimes(1);
+		expect(removeWrites.removeClass).toHaveBeenCalledWith('ft-has-background');
+		expect(removeWrites.removeStyle).toHaveBeenCalledTimes(1);
+		expect(removeWrites.removeStyle).toHaveBeenCalledWith('--ft-background');
+		expect(removeWrites.addClass).not.toHaveBeenCalled();
+		expect(removeWrites.setStyle).not.toHaveBeenCalled();
+		restoreDomWriteSpies(removeWrites);
 		manager.stop();
 	});
 });
