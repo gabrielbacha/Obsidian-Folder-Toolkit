@@ -36,11 +36,13 @@ export class AppearanceModal extends Modal {
 	}
 
 	onOpen(): void {
+		this.contentEl.ownerDocument.body.addClass('ft-show-direct-color-indicators');
 		this.setTitle(`Edit ${this.isFolder ? 'folder' : 'file'} colors`);
 		this.render();
 	}
 
 	onClose(): void {
+		this.contentEl.ownerDocument.body.removeClass('ft-show-direct-color-indicators');
 		this.clearPickerListeners();
 		this.toolkit.clearAppearancePreview(this.path);
 		this.contentEl.empty();
@@ -153,19 +155,20 @@ export class AppearanceModal extends Modal {
 			},
 		};
 
-		const isBackgroundCascading = !!this.draft.background && this.draft.background.choice.kind !== 'none' && !!this.draft.background.cascade;
-
 		for (const { path, el, titleEl, isFolder, relation } of this.previewRows) {
 			const appearance = resolveAppearance(path, { ...context, isFolder });
+			const directBackground = appearanceRules[path]?.background;
+			const directHasColor = directBackground !== undefined && directBackground.choice.kind !== 'none';
+			const directBlocks = directBackground?.choice.kind === 'none';
+			const directCascades = isFolder && directBackground?.cascade === true;
 			titleEl.classList.toggle('ft-preview-has-text', appearance.text !== null);
-
-			if (relation === 'root' && isFolder && isBackgroundCascading) {
-				el.classList.toggle('ft-preview-has-background', appearance.background !== null);
-				titleEl.classList.remove('ft-preview-has-background');
-			} else {
-				el.classList.remove('ft-preview-has-background');
-				titleEl.classList.toggle('ft-preview-has-background', appearance.background !== null && !isBackgroundCascading);
-			}
+			el.classList.toggle('ft-preview-background-cascade', directHasColor && directCascades);
+			el.classList.toggle('ft-preview-background-block', directBlocks === true);
+			el.classList.toggle('ft-preview-background-block-cascade', directBlocks === true && directCascades);
+			titleEl.classList.toggle(
+				'ft-preview-has-background',
+				appearance.background !== null && ((directHasColor && !directCascades) || (!directBackground && relation === 'root')),
+			);
 			
 			const hasBorder = appearance.border && isFolder && relation !== 'ancestor';
 			el.classList.toggle('ft-preview-border-box', !!(hasBorder && appearance.border?.style === 'box'));
@@ -311,11 +314,11 @@ export class AppearanceModal extends Modal {
 	private renderDescendants(container: HTMLElement): void {
 		const card = container.createDiv(`ft-color-card ft-color-card--border${this.draft.descendants ? '' : ' is-disabled'}`);
 		const header = card.createDiv('ft-color-card__header');
-		header.createEl('h3', { text: 'Descendants' });
+		header.createEl('h3', { text: 'Direct subfolders' });
 		const toggle = header.createEl('label', { cls: 'ft-border-toggle' });
 		const checkbox = toggle.createEl('input', { attr: { type: 'checkbox' } });
 		checkbox.checked = this.draft.descendants !== undefined;
-		toggle.createSpan({ text: 'Alternating subfolder borders' });
+		toggle.createSpan({ text: 'Alternate border colors' });
 		checkbox.addEventListener('change', () => {
 			if (checkbox.checked) this.draft.descendants = structuredClone(this.rememberedDescendants);
 			else {

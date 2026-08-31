@@ -6,7 +6,8 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 - Independent text and background colors for folders and notes
 - Per-effect folder cascading with explicit inheritance blockers
-- Rounded-box or vertical-rail borders around folder subtrees
+- Rounded-box or vertical-rail borders around folder subtrees, with optional shaded interiors
+- Alternating active-palette borders for direct subfolders
 - Optional colored backgrounds or borders on open note tabs
 - The same eight switchable palette templates as Bases Visuals, plus custom hex colors
 - Permanent file and folder hiding with a searchable manager
@@ -19,7 +20,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 Right-click or long-press a file or folder and use the actions in Obsidian's plugin-action group:
 
-- **Edit folder colors…** or **Edit file colors…** opens a background-first color editor. Background is the primary treatment, folder borders can be enabled separately, and the optional text-color controls stay collapsed until needed. Folders can cascade effects to descendants. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
+- **Edit folder colors…** or **Edit file colors…** opens a background-first color editor. Cascaded backgrounds remain aligned to each indented explorer row, while folder borders and optional shading enclose their own subtree. Direct subfolders can receive alternating colors from the active palette. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
 - **Hide file/folder** permanently removes the item from the explorer until hidden items are shown or the path is unhidden.
 - **Focus this folder** temporarily hides unrelated branches. Use **Exit folder focus** from a visible folder or the command palette to restore the explorer.
 

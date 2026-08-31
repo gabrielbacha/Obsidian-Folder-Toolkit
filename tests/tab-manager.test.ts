@@ -64,6 +64,12 @@ describe('open note tabs', () => {
 		expect(tabAccents('Other.md', settings('background'))).toEqual({ text: null, background: null });
 	});
 
+	it('retains cascaded tab backgrounds inside shaded direct subfolders', () => {
+		const current = settings('background');
+		current.appearanceRules.B.descendants = { enabled: true, style: 'box', thickness: 'thin', shading: true };
+		expect(tabAccents('B/Subfolder/note.md', current)).toEqual({ text: null, background: '#3498DB' });
+	});
+
 	it('maps leaves to their tab headers and cleans up', () => {
 		const workspace = document.createElement('div');
 		const tabs = document.createElement('div');

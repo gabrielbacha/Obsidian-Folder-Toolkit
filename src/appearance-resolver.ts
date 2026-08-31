@@ -1,6 +1,14 @@
 import { resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
-import type { BorderRule, EffectRule, FolderToolkitSettings } from './types';
+import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings } from './types';
+
+export function hasDirectColor(rule: AppearanceRule | undefined): boolean {
+	const backgroundKind = rule?.background?.choice.kind;
+	const textKind = rule?.text?.choice.kind;
+	return (backgroundKind !== undefined && backgroundKind !== 'none')
+		|| (textKind !== undefined && textKind !== 'none')
+		|| rule?.border !== undefined;
+}
 
 export interface ResolvedAppearance {
 	text: ResolvedColor | null;
@@ -16,36 +24,9 @@ function effectiveEffect(
 	const rules = context.settings.appearanceRules;
 	const direct = rules[path]?.[key];
 	if (direct) return direct;
-
-	// For background: if this path itself has direct border shading, don't inherit ancestor background
-	if (key === 'background' && rules[path]?.border?.shading) {
-		return undefined;
-	}
-
-	const parents = parentPaths(path);
-	for (let i = 0; i < parents.length; i++) {
-		const parent = parents[i];
+	for (const parent of parentPaths(path)) {
 		const candidate = rules[parent]?.[key];
-
-		if (candidate?.cascade) {
-			if (key === 'background') {
-				// Check if any intermediate parent has direct border shading
-				for (let j = 0; j < i; j++) {
-					if (rules[parents[j]]?.border?.shading) return undefined;
-				}
-
-				// Check if the ancestor has alternating descendant shading
-				const descendants = rules[parent]?.descendants;
-				if (descendants?.enabled && descendants.shading) {
-					// If i > 0, it is at least one subfolder deep, so it's inside a subfolder
-					if (i > 0) return undefined;
-					// If i === 0: path is a direct child of parent. If this direct child has a descendant border, it's a subfolder with shading!
-					const ownBorder = effectiveBorder(path, context);
-					if (ownBorder?.shading) return undefined;
-				}
-			}
-			return candidate;
-		}
+		if (candidate?.cascade) return candidate;
 	}
 	return undefined;
 }
@@ -71,7 +52,7 @@ function effectiveBorder(
 	// Descendant border rules only apply to folders
 	if (!isFolderPath(path, context)) return undefined;
 
-	// Alternating subfolder borders only apply 1 level down from the root folder
+	// Alternating borders intentionally apply to direct subfolders only.
 	const parents = parentPaths(path);
 	if (parents.length === 0) return undefined;
 	const immediateParent = parents[0];

@@ -1,12 +1,13 @@
-import { type App, TFolder } from 'obsidian';
-import { resolveAppearance } from './appearance-resolver';
+import type { App } from 'obsidian';
+import { hasDirectColor, resolveAppearance } from './appearance-resolver';
 import { syncClass, syncStyle } from './dom-sync';
 import { focusRelation, hiddenBy } from './visibility';
 import type { FolderToolkitSettings } from './types';
 
 const MANAGED_CLASSES = [
-	'ft-has-text', 'ft-has-background', 'ft-background-cascade', 'ft-border-box', 'ft-border-rail',
-	'ft-border-shaded',
+	'ft-has-text', 'ft-has-background', 'ft-background-direct', 'ft-background-cascade',
+	'ft-background-block', 'ft-background-block-cascade', 'ft-border-box', 'ft-border-rail',
+	'ft-border-shaded', 'ft-direct-color-rule',
 	'ft-permanent-hidden', 'ft-focus-hidden', 'ft-focus-ancestor', 'ft-focus-root',
 ] as const;
 
@@ -86,16 +87,16 @@ export class ExplorerManager {
 		this.observers.clear();
 	}
 
-	private getDescendantIndex(path: string, root: string): number {
-		const rootFolder = this.app.vault.getAbstractFileByPath(root);
-		if (!(rootFolder instanceof TFolder)) return 0;
-		const targetFile = this.app.vault.getAbstractFileByPath(path);
-		if (!(targetFile instanceof TFolder)) return 0;
-
-		const directSubfolders = rootFolder.children.filter((c): c is TFolder => c instanceof TFolder);
-		directSubfolders.sort((a, b) => a.name.localeCompare(b.name));
-		const index = directSubfolders.indexOf(targetFile);
-		return Math.max(0, index);
+	private getVisibleFolderIndex(row: HTMLElement): number {
+		const siblings = row.parentElement?.children;
+		if (!siblings) return 0;
+		let folderIndex = 0;
+		for (const sibling of siblings) {
+			if (!isHtmlElement(sibling) || !sibling.classList.contains('nav-folder')) continue;
+			if (sibling === row) return folderIndex;
+			folderIndex += 1;
+		}
+		return 0;
 	}
 
 	private applyRow(
@@ -107,20 +108,26 @@ export class ExplorerManager {
 		const isFolder = row.classList.contains('nav-folder');
 		const context = {
 			settings,
-			getDescendantIndex: (p: string, r: string) => this.getDescendantIndex(p, r),
+			getDescendantIndex: () => this.getVisibleFolderIndex(row),
 			isFolder,
 		};
 		const appearance = resolveAppearance(path, context);
 		const relation = focusRelation(path, focusPath);
 		const hasText = appearance.text !== null;
 		const hasBackground = appearance.background !== null;
+		const directBackground = settings.appearanceRules[path]?.background;
+		const hasDirectBackground = directBackground !== undefined;
+		const directBackgroundHasColor = hasDirectBackground && directBackground.choice.kind !== 'none';
+		const directBackgroundBlocks = hasDirectBackground && directBackground.choice.kind === 'none';
+		const directBackgroundCascades = isFolder && directBackground?.cascade === true;
 
-		const directRule = settings.appearanceRules[path];
-		const isBackgroundCascade = isFolder && !!directRule?.background && directRule.background.choice.kind !== 'none' && !!directRule.background.cascade;
-
+		syncClass(row, 'ft-direct-color-rule', hasDirectColor(settings.appearanceRules[path]));
 		syncClass(row, 'ft-has-text', hasText);
 		syncClass(row, 'ft-has-background', hasBackground);
-		syncClass(row, 'ft-background-cascade', isBackgroundCascade);
+		syncClass(row, 'ft-background-direct', directBackgroundHasColor);
+		syncClass(row, 'ft-background-cascade', directBackgroundHasColor && directBackgroundCascades);
+		syncClass(row, 'ft-background-block', directBackgroundBlocks);
+		syncClass(row, 'ft-background-block-cascade', directBackgroundBlocks && directBackgroundCascades);
 
 		if (appearance.border && row.classList.contains('nav-folder') && relation !== 'ancestor') {
 			syncClass(row, 'ft-border-box', appearance.border.style === 'box');

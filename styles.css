@@ -8,32 +8,30 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 	color: var(--ft-text-dark);
 }
 
-.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-background > .nav-file-title,
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-background:not(.ft-background-cascade) > .nav-folder-title {
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title {
 	background-color: color-mix(in srgb, var(--ft-background) 12%, transparent);
-	margin-inline-start: 0;
 	border-radius: var(--radius-s);
 }
 
-.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-background > .nav-file-title:hover,
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-background:not(.ft-background-cascade) > .nav-folder-title:hover {
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct {
+	overflow: clip;
+	border-radius: var(--radius-s);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title:hover,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title:hover {
 	background-color: color-mix(in srgb, var(--ft-background) 18%, transparent);
 }
 
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-background.ft-background-cascade {
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-cascade.ft-has-background {
 	background-color: color-mix(in srgb, var(--ft-background) 12%, var(--background-secondary));
 }
 
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-background.ft-background-cascade:hover {
-	background-color: color-mix(in srgb, var(--ft-background) 18%, var(--background-secondary));
-}
-
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-cascade .nav-file.ft-has-background > .nav-file-title {
-	background-color: transparent;
-}
-
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-cascade .nav-file.ft-has-background > .nav-file-title:hover {
-	background-color: color-mix(in srgb, var(--ft-background) 6%, transparent);
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-block > .nav-file-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block:not(.ft-background-block-cascade) > .nav-folder-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block-cascade {
+	background-color: var(--background-secondary);
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-box {
@@ -49,11 +47,7 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-shaded {
-	background-color: color-mix(in srgb, var(--ft-border) 14%, var(--background-secondary));
-}
-
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-shaded:hover {
-	background-color: color-mix(in srgb, var(--ft-border) 20%, var(--background-secondary));
+	background-color: color-mix(in srgb, var(--ft-border) 9%, var(--background-secondary));
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .ft-permanent-hidden,
@@ -143,6 +137,19 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 	white-space: nowrap;
 }
 
+body.ft-show-direct-color-indicators .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-direct-color-rule > .nav-folder-title .nav-folder-title-content::after,
+body.ft-show-direct-color-indicators .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-direct-color-rule > .nav-file-title .nav-file-title-content::after {
+	display: inline-block;
+	width: 3px;
+	height: 3px;
+	margin-inline-start: 5px;
+	border: 1px solid color-mix(in srgb, var(--interactive-accent) 40%, var(--text-muted));
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-muted));
+	content: '';
+	vertical-align: 1px;
+}
+
 .ft-live-preview__row.ft-preview-has-text {
 	color: var(--ft-preview-text-light);
 }
@@ -151,16 +158,26 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 	color: var(--ft-preview-text-dark);
 }
 
-.ft-live-preview__row.ft-preview-has-background,
-.ft-preview-tree .nav-folder.ft-preview-has-background {
+.ft-live-preview__row.ft-preview-has-background {
 	background-color: color-mix(in srgb, var(--ft-preview-background) 14%, var(--background-primary));
 }
 
-.nav-folder.ft-preview-border-box {
+.ft-preview-tree .nav-folder.ft-preview-background-cascade {
+	overflow: clip;
+	border-radius: var(--radius-s);
+	background-color: color-mix(in srgb, var(--ft-preview-background) 14%, var(--background-primary));
+}
+
+.ft-preview-tree .ft-preview-background-block > .ft-live-preview__row,
+.ft-preview-tree .nav-folder.ft-preview-background-block-cascade {
+	background-color: var(--background-primary);
+}
+
+.ft-preview-tree .nav-folder.ft-preview-border-box {
 	box-shadow: inset 0 0 0 var(--ft-preview-border-width, 2px) color-mix(in srgb, var(--ft-preview-border) 65%, transparent);
 	border-radius: var(--radius-s);
 }
-.nav-folder-collapse-indicator.collapse-icon {
+.ft-preview-tree .nav-folder-collapse-indicator.collapse-icon {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -172,17 +189,17 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 .ft-preview-tree .nav-folder-collapse-indicator.collapse-icon svg {
 	transform: none !important;
 }
-.nav-folder-collapse-indicator.collapse-icon svg {
+.ft-preview-tree .nav-folder-collapse-indicator.collapse-icon svg {
 	width: 12px;
 	height: 12px;
 }
-.nav-folder.ft-preview-border-rail {
+.ft-preview-tree .nav-folder.ft-preview-border-rail {
 	box-shadow: inset var(--ft-preview-border-width, 3px) 0 0 color-mix(in srgb, var(--ft-preview-border) 75%, transparent);
 	border-radius: var(--radius-s);
 }
 
-.nav-folder.ft-preview-border-shaded {
-	background-color: color-mix(in srgb, var(--ft-preview-border) 14%, transparent);
+.ft-preview-tree .nav-folder.ft-preview-border-shaded {
+	background-color: color-mix(in srgb, var(--ft-preview-border) 9%, var(--background-primary));
 }
 
 .ft-preview-children {

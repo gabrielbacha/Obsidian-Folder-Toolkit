@@ -42,7 +42,7 @@ describe('appearance resolution', () => {
 		expect(resolveAppearance('A/B', { settings }).border).toBeNull();
 	});
 
-	it('overrides ancestor background cascade when descendant shading is active', () => {
+	it('keeps inherited backgrounds independent from descendant shading', () => {
 		const settingsWithDescendants: FolderToolkitSettings = {
 			...settings,
 			appearanceRules: {
@@ -58,15 +58,15 @@ describe('appearance resolution', () => {
 		expect(root.background?.hex).toBe('#3498DB');
 		expect(root.border?.style).toBe('rail');
 
-		// Subfolder inherits alternating descendant border with shading and does NOT get Root background
+		// Subfolder gets both the row-sized inherited background and its group shading.
 		const sub = resolveAppearance('Root/Sub', { settings: settingsWithDescendants });
 		expect(sub.border?.style).toBe('box');
 		expect(sub.border?.shading).toBe(true);
-		expect(sub.background).toBeNull();
+		expect(sub.background?.hex).toBe('#3498DB');
 
-		// File inside Sub inherits Sub shading (no background override)
+		// Files retain the same inherited background for explorer rows and open tabs.
 		const fileInSub = resolveAppearance('Root/Sub/file.md', { settings: settingsWithDescendants });
-		expect(fileInSub.background).toBeNull();
+		expect(fileInSub.background?.hex).toBe('#3498DB');
 
 		// File directly in Root gets Root background
 		const fileInRoot = resolveAppearance('Root/file.md', { settings: settingsWithDescendants });
