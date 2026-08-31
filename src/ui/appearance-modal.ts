@@ -2,17 +2,17 @@ import { Modal, TFolder, setIcon } from 'obsidian';
 import { resolveAppearance } from '../appearance-resolver';
 import { normalizeHex, paletteTemplate, resolveChoice } from '../colors';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, BorderRule, ColorChoice } from '../types';
+import type { AppearanceRule, BorderRule, ColorChoice, DescendantRule } from '../types';
 
 type EffectKey = 'text' | 'background';
 
 export class AppearanceModal extends Modal {
 	private draft: AppearanceRule;
 	private readonly isFolder: boolean;
-	private previewEl: HTMLElement | null = null;
 	private pickerCleanups: Array<() => void> = [];
 	private textExpanded = false;
 	private rememberedBorder: BorderRule;
+	private rememberedDescendants: DescendantRule;
 
 	constructor(
 		private readonly toolkit: FolderToolkitPlugin,
@@ -25,6 +25,13 @@ export class AppearanceModal extends Modal {
 		this.rememberedBorder = structuredClone(this.draft.border ?? {
 			style: 'box',
 			color: { kind: 'preset', slot: 0 },
+			thickness: 'thin',
+		});
+		this.rememberedDescendants = structuredClone(this.draft.descendants ?? {
+			enabled: true,
+			style: 'rail',
+			thickness: 'thin',
+			shading: false,
 		});
 	}
 
@@ -37,7 +44,6 @@ export class AppearanceModal extends Modal {
 		this.clearPickerListeners();
 		this.toolkit.clearAppearancePreview(this.path);
 		this.contentEl.empty();
-		this.previewEl = null;
 	}
 
 	private render(): void {
@@ -47,7 +53,10 @@ export class AppearanceModal extends Modal {
 		this.renderPreview();
 		const cards = this.contentEl.createDiv('ft-appearance-grid');
 		this.renderEffect(cards, 'background', 'Background');
-		if (this.isFolder) this.renderBorder(cards);
+		if (this.isFolder) {
+			this.renderBorder(cards);
+			this.renderDescendants(cards);
+		}
 		this.renderText(cards);
 
 		const footer = this.contentEl.createDiv('ft-modal-footer');
@@ -75,14 +84,53 @@ export class AppearanceModal extends Modal {
 		}
 	}
 
+	private previewRows: Array<{ path: string; el: HTMLElement; titleEl: HTMLElement; isFolder: boolean; relation: 'root' | 'ancestor' | 'descendant' }> = [];
+
 	private renderPreview(): void {
 		const preview = this.contentEl.createDiv('ft-live-preview');
 		preview.createDiv({ text: 'Preview', cls: 'ft-live-preview__label' });
-		const row = preview.createDiv('ft-live-preview__row');
-		const icon = row.createSpan('ft-live-preview__icon');
-		setIcon(icon, this.isFolder ? 'folder' : 'file-text');
-		row.createSpan({ text: this.path.split('/').at(-1) ?? this.path, cls: 'ft-live-preview__name' });
-		this.previewEl = row;
+		this.previewRows = [];
+		const container = preview.createDiv('ft-preview-tree');
+		
+		const createFolderRow = (parent: HTMLElement, name: string, path: string, relation: 'root' | 'ancestor' | 'descendant', collapsed: boolean = false) => {
+			const folderContainer = parent.createDiv('nav-folder');
+			const titleRow = folderContainer.createDiv('ft-live-preview__row ft-live-preview__folder-title nav-folder-title');
+			const icon = titleRow.createDiv('nav-folder-collapse-indicator collapse-icon' + (collapsed ? ' is-collapsed' : ''));
+			setIcon(icon, collapsed ? 'chevron-right' : 'chevron-down');
+			titleRow.createSpan({ text: name, cls: 'ft-live-preview__name nav-folder-title-content' });
+			this.previewRows.push({ path, el: folderContainer, titleEl: titleRow, isFolder: true, relation });
+			const childrenContainer = folderContainer.createDiv('nav-folder-children ft-preview-children');
+			if (collapsed) childrenContainer.hide();
+			return { folderContainer, childrenContainer };
+		};
+
+		const createFileRow = (parent: HTMLElement, name: string, path: string, relation: 'root' | 'ancestor' | 'descendant') => {
+			const row = parent.createDiv('ft-live-preview__row nav-file');
+			row.createDiv('nav-folder-collapse-indicator collapse-icon'); // empty spacer
+			row.createSpan({ text: name, cls: 'ft-live-preview__name nav-file-title-content' });
+			this.previewRows.push({ path, el: row, titleEl: row, isFolder: false, relation });
+			return row;
+		};
+
+		const rootName = this.path.split('/').at(-1) ?? this.path;
+		if (this.isFolder) {
+			const { childrenContainer } = createFolderRow(container, rootName, this.path, 'root');
+			
+			// Subfolder 1 (Collapsed)
+			const sub1Path = `${this.path}/Subfolder 1`;
+			createFolderRow(childrenContainer, 'Subfolder 1', sub1Path, 'descendant', true);
+
+			// Subfolder 2 and 3 (Expanded)
+			for (let i = 2; i <= 3; i++) {
+				const subfolderPath = `${this.path}/Subfolder ${i}`;
+				const sub = createFolderRow(childrenContainer, `Subfolder ${i}`, subfolderPath, 'descendant');
+				createFileRow(sub.childrenContainer, `File ${i}.1`, `${subfolderPath}/File ${i}.1`, 'descendant');
+			}
+			createFileRow(childrenContainer, 'File 1', `${this.path}/File 1`, 'descendant');
+		} else {
+			createFileRow(container, rootName, this.path, 'root');
+		}
+
 		this.updateModalPreview();
 	}
 
@@ -92,23 +140,59 @@ export class AppearanceModal extends Modal {
 	}
 
 	private updateModalPreview(): void {
-		if (!this.previewEl) return;
 		const appearanceRules = { ...this.toolkit.settings.appearanceRules };
 		if (Object.keys(this.draft).length === 0) delete appearanceRules[this.path];
 		else appearanceRules[this.path] = structuredClone(this.draft);
-		const appearance = resolveAppearance(this.path, { ...this.toolkit.settings, appearanceRules });
-		const row = this.previewEl;
-		row.classList.toggle('ft-preview-has-text', appearance.text !== null);
-		row.classList.toggle('ft-preview-has-background', appearance.background !== null);
-		row.classList.toggle('ft-preview-border-box', appearance.border?.style === 'box');
-		row.classList.toggle('ft-preview-border-rail', appearance.border?.style === 'rail');
-		for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-background', '--ft-preview-border']) row.style.removeProperty(property);
-		if (appearance.text) {
-			row.style.setProperty('--ft-preview-text-light', appearance.text.foregroundLight);
-			row.style.setProperty('--ft-preview-text-dark', appearance.text.foregroundDark);
+		const settings = { ...this.toolkit.settings, appearanceRules };
+		const previewOrder = [this.path, `${this.path}/Subfolder 1`, `${this.path}/Subfolder 2`, `${this.path}/Subfolder 3`];
+		const context = {
+			settings,
+			getDescendantIndex: (p: string) => {
+				const i = previewOrder.indexOf(p);
+				return Math.max(0, i - 1);
+			},
+		};
+
+		const isBackgroundCascading = !!this.draft.background && this.draft.background.choice.kind !== 'none' && !!this.draft.background.cascade;
+
+		for (const { path, el, titleEl, isFolder, relation } of this.previewRows) {
+			const appearance = resolveAppearance(path, { ...context, isFolder });
+			titleEl.classList.toggle('ft-preview-has-text', appearance.text !== null);
+
+			if (relation === 'root' && isFolder && isBackgroundCascading) {
+				el.classList.toggle('ft-preview-has-background', appearance.background !== null);
+				titleEl.classList.remove('ft-preview-has-background');
+			} else {
+				el.classList.remove('ft-preview-has-background');
+				titleEl.classList.toggle('ft-preview-has-background', appearance.background !== null && !isBackgroundCascading);
+			}
+			
+			const hasBorder = appearance.border && isFolder && relation !== 'ancestor';
+			el.classList.toggle('ft-preview-border-box', !!(hasBorder && appearance.border?.style === 'box'));
+			el.classList.toggle('ft-preview-border-rail', !!(hasBorder && appearance.border?.style === 'rail'));
+			el.classList.toggle('ft-preview-border-shaded', !!(hasBorder && appearance.border?.shading));
+
+			for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-background', '--ft-preview-border', '--ft-preview-border-width']) {
+				el.style.removeProperty(property);
+				titleEl.style.removeProperty(property);
+			}
+
+			if (appearance.text) {
+				el.style.setProperty('--ft-preview-text-light', appearance.text.foregroundLight);
+				el.style.setProperty('--ft-preview-text-dark', appearance.text.foregroundDark);
+			}
+			if (appearance.background) {
+				el.style.setProperty('--ft-preview-background', appearance.background.hex);
+				titleEl.style.setProperty('--ft-preview-background', appearance.background.hex);
+			}
+			if (hasBorder && appearance.border) {
+				el.style.setProperty('--ft-preview-border', appearance.border.color.hex);
+				const thicknessMap = appearance.border.style === 'box'
+					? { thin: '1px', medium: '2px', thick: '3px' }
+					: { thin: '2px', medium: '4px', thick: '6px' };
+				el.style.setProperty('--ft-preview-border-width', thicknessMap[appearance.border.thickness ?? 'thin']);
+			}
 		}
-		if (appearance.background) row.style.setProperty('--ft-preview-background', appearance.background.hex);
-		if (appearance.border) row.style.setProperty('--ft-preview-border', appearance.border.color.hex);
 	}
 
 	private renderEffect(container: HTMLElement, key: EffectKey, label: string): void {
@@ -191,6 +275,7 @@ export class AppearanceModal extends Modal {
 			}
 			this.render();
 		});
+
 		const styles = card.createDiv('ft-choice-row');
 		this.choiceButton(styles, 'Rounded box', this.rememberedBorder.style === 'box', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'box' };
@@ -202,6 +287,17 @@ export class AppearanceModal extends Modal {
 			if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
+
+		const thicknessRow = card.createDiv('ft-choice-row');
+		const currentThickness = this.rememberedBorder.thickness ?? 'thin';
+		for (const size of ['thin', 'medium', 'thick'] as const) {
+			this.choiceButton(thicknessRow, size.charAt(0).toUpperCase() + size.slice(1), currentThickness === size, () => {
+				this.rememberedBorder = { ...this.rememberedBorder, thickness: size };
+				if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+				this.render();
+			});
+		}
+
 		this.renderColorChoices(card, this.rememberedBorder.color, (choice, rerender) => {
 			if (choice.kind !== 'none') {
 				this.rememberedBorder = { ...this.rememberedBorder, color: choice };
@@ -210,6 +306,57 @@ export class AppearanceModal extends Modal {
 			if (rerender) this.render();
 			else this.refreshPreview();
 		}, this.draft.border !== undefined);
+	}
+
+	private renderDescendants(container: HTMLElement): void {
+		const card = container.createDiv(`ft-color-card ft-color-card--border${this.draft.descendants ? '' : ' is-disabled'}`);
+		const header = card.createDiv('ft-color-card__header');
+		header.createEl('h3', { text: 'Descendants' });
+		const toggle = header.createEl('label', { cls: 'ft-border-toggle' });
+		const checkbox = toggle.createEl('input', { attr: { type: 'checkbox' } });
+		checkbox.checked = this.draft.descendants !== undefined;
+		toggle.createSpan({ text: 'Alternating subfolder borders' });
+		checkbox.addEventListener('change', () => {
+			if (checkbox.checked) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			else {
+				if (this.draft.descendants) this.rememberedDescendants = structuredClone(this.draft.descendants);
+				delete this.draft.descendants;
+			}
+			this.render();
+		});
+
+		const styles = card.createDiv('ft-choice-row');
+		this.choiceButton(styles, 'Rounded box', this.rememberedDescendants.style === 'box', () => {
+			this.rememberedDescendants = { ...this.rememberedDescendants, style: 'box' };
+			if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			this.render();
+		});
+		this.choiceButton(styles, 'Vertical rail', this.rememberedDescendants.style === 'rail', () => {
+			this.rememberedDescendants = { ...this.rememberedDescendants, style: 'rail' };
+			if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			this.render();
+		});
+
+		const thicknessRow = card.createDiv('ft-choice-row');
+		const currentThickness = this.rememberedDescendants.thickness ?? 'thin';
+		for (const size of ['thin', 'medium', 'thick'] as const) {
+			this.choiceButton(thicknessRow, size.charAt(0).toUpperCase() + size.slice(1), currentThickness === size, () => {
+				this.rememberedDescendants = { ...this.rememberedDescendants, thickness: size };
+				if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+				this.render();
+			});
+		}
+
+		const shadingRow = card.createDiv('ft-choice-row');
+		const shadingToggle = shadingRow.createEl('label', { cls: 'ft-border-toggle' });
+		const shadingCheck = shadingToggle.createEl('input', { attr: { type: 'checkbox' } });
+		shadingCheck.checked = !!this.rememberedDescendants.shading;
+		shadingToggle.createSpan({ text: 'Light shading inside border' });
+		shadingCheck.addEventListener('change', () => {
+			this.rememberedDescendants = { ...this.rememberedDescendants, shading: shadingCheck.checked };
+			if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			this.render();
+		});
 	}
 
 	private renderColorChoices(

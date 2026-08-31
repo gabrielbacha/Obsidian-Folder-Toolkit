@@ -154,8 +154,9 @@ describe('ExplorerManager', () => {
 		};
 		const addWrites = watchDomWrites();
 		manager.reconcile();
-		expect(addWrites.addClass).toHaveBeenCalledTimes(1);
+		expect(addWrites.addClass).toHaveBeenCalledTimes(2);
 		expect(addWrites.addClass).toHaveBeenCalledWith('ft-has-background');
+		expect(addWrites.addClass).toHaveBeenCalledWith('ft-background-cascade');
 		expect(addWrites.setStyle).toHaveBeenCalledTimes(1);
 		expect(addWrites.setStyle).toHaveBeenCalledWith('--ft-background', '#8E44AD');
 		expect(addWrites.removeClass).not.toHaveBeenCalled();
@@ -165,8 +166,9 @@ describe('ExplorerManager', () => {
 		delete settings.appearanceRules.Other;
 		const removeWrites = watchDomWrites();
 		manager.reconcile();
-		expect(removeWrites.removeClass).toHaveBeenCalledTimes(1);
+		expect(removeWrites.removeClass).toHaveBeenCalledTimes(2);
 		expect(removeWrites.removeClass).toHaveBeenCalledWith('ft-has-background');
+		expect(removeWrites.removeClass).toHaveBeenCalledWith('ft-background-cascade');
 		expect(removeWrites.removeStyle).toHaveBeenCalledTimes(1);
 		expect(removeWrites.removeStyle).toHaveBeenCalledWith('--ft-background');
 		expect(removeWrites.addClass).not.toHaveBeenCalled();

@@ -5,6 +5,7 @@ import {
 	type AppearanceRule,
 	type BorderRule,
 	type ColorChoice,
+	type DescendantRule,
 	type EffectRule,
 	type FolderToolkitSettings,
 } from './types';
@@ -33,10 +34,32 @@ function normalizeEffect(value: unknown, paletteLength: number): EffectRule | un
 	return choice ? { choice, cascade: value.cascade === true } : undefined;
 }
 
+function normalizeThickness(value: unknown): 'thin' | 'medium' | 'thick' | undefined {
+	return value === 'thin' || value === 'medium' || value === 'thick' ? value : undefined;
+}
+
 function normalizeBorder(value: unknown, paletteLength: number): BorderRule | undefined {
 	if (!isRecord(value) || (value.style !== 'box' && value.style !== 'rail')) return undefined;
 	const color = normalizeChoice(value.color, paletteLength);
-	return color && color.kind !== 'none' ? { style: value.style, color } : undefined;
+	if (!color || color.kind === 'none') return undefined;
+	return {
+		style: value.style,
+		color,
+		thickness: normalizeThickness(value.thickness),
+		shading: value.shading === true,
+	};
+}
+
+function normalizeDescendants(value: unknown): DescendantRule | undefined {
+	if (!isRecord(value)) return undefined;
+	const enabled = value.enabled === true;
+	if (!enabled) return undefined;
+	return {
+		enabled: true,
+		style: value.style === 'box' || value.style === 'rail' ? value.style : 'rail',
+		thickness: normalizeThickness(value.thickness),
+		shading: value.shading === true,
+	};
 }
 
 function normalizeAppearance(value: unknown, paletteLength: number): AppearanceRule | null {
@@ -44,8 +67,14 @@ function normalizeAppearance(value: unknown, paletteLength: number): AppearanceR
 	const text = normalizeEffect(value.text, paletteLength);
 	const background = normalizeEffect(value.background, paletteLength);
 	const border = normalizeBorder(value.border, paletteLength);
-	if (!text && !background && !border) return null;
-	return { ...(text ? { text } : {}), ...(background ? { background } : {}), ...(border ? { border } : {}) };
+	const descendants = normalizeDescendants(value.descendants);
+	if (!text && !background && !border && !descendants) return null;
+	return {
+		...(text ? { text } : {}),
+		...(background ? { background } : {}),
+		...(border ? { border } : {}),
+		...(descendants ? { descendants } : {}),
+	};
 }
 
 export function normalizeSettings(raw: unknown): FolderToolkitSettings {

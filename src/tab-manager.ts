@@ -12,7 +12,7 @@ export interface TabAccents {
 }
 
 export function tabAccents(path: string, settings: FolderToolkitSettings): TabAccents {
-	const appearance = resolveAppearance(path, settings);
+	const appearance = resolveAppearance(path, { settings });
 	return {
 		text: appearance.text?.hex ?? null,
 		background: appearance.background?.hex ?? null,

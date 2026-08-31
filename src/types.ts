@@ -17,16 +17,27 @@ export interface EffectRule {
 }
 
 export type BorderStyle = 'box' | 'rail';
+export type BorderThickness = 'thin' | 'medium' | 'thick';
 
 export interface BorderRule {
 	style: BorderStyle;
 	color: Exclude<ColorChoice, { kind: 'none' }>;
+	thickness?: BorderThickness;
+	shading?: boolean;
+}
+
+export interface DescendantRule {
+	enabled: boolean;
+	style: BorderStyle;
+	thickness?: BorderThickness;
+	shading?: boolean;
 }
 
 export interface AppearanceRule {
 	text?: EffectRule;
 	background?: EffectRule;
 	border?: BorderRule;
+	descendants?: DescendantRule;
 }
 
 export interface FolderToolkitSettings {

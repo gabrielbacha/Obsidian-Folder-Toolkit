@@ -25,8 +25,8 @@ describe('AppearancePreviewStore', () => {
 			border: { style: 'rail', color: { kind: 'preset', slot: 2 } },
 		});
 		const effective = previews.apply(persisted);
-		expect(resolveAppearance('A/note.md', effective).background?.hex).toBe('#3498DB');
-		expect(resolveAppearance('A', effective).border?.style).toBe('rail');
+		expect(resolveAppearance('A/note.md', { settings: effective }).background?.hex).toBe('#3498DB');
+		expect(resolveAppearance('A', { settings: effective }).border?.style).toBe('rail');
 		expect(persisted.appearanceRules.A?.background).toBeUndefined();
 		expect(persisted.appearanceRules.A?.text).toBeDefined();
 	});
@@ -35,10 +35,10 @@ describe('AppearancePreviewStore', () => {
 		const persisted = settings();
 		const previews = new AppearancePreviewStore();
 		previews.set('A', {});
-		expect(resolveAppearance('A/note.md', previews.apply(persisted)).text).toBeNull();
+		expect(resolveAppearance('A/note.md', { settings: previews.apply(persisted) }).text).toBeNull();
 		previews.clear('A');
 		expect(previews.apply(persisted)).toBe(persisted);
-		expect(resolveAppearance('A/note.md', persisted).text?.hex).toBe('#16A085');
+		expect(resolveAppearance('A/note.md', { settings: persisted }).text?.hex).toBe('#16A085');
 	});
 
 	it('keeps a selected background active while an omitted border stays disabled', () => {
@@ -48,15 +48,15 @@ describe('AppearancePreviewStore', () => {
 			background: { choice: { kind: 'preset', slot: 1 }, cascade: true },
 		});
 		const effective = previews.apply(persisted);
-		expect(resolveAppearance('A', effective).background?.hex).toBe('#3498DB');
-		expect(resolveAppearance('A', effective).border).toBeNull();
+		expect(resolveAppearance('A', { settings: effective }).background?.hex).toBe('#3498DB');
+		expect(resolveAppearance('A', { settings: effective }).border).toBeNull();
 	});
 
 	it('clears transient rules with their subtree', () => {
 		const persisted = settings();
 		const previews = new AppearancePreviewStore();
 		previews.set('A/B', { text: { choice: { kind: 'preset', slot: 3 }, cascade: true } });
-		expect(resolveAppearance('A/B/note.md', previews.apply(persisted)).text?.hex).toBe('#2C3E50');
+		expect(resolveAppearance('A/B/note.md', { settings: previews.apply(persisted) }).text?.hex).toBe('#2C3E50');
 		previews.clearSubtree('A');
 		expect(previews.apply(persisted)).toBe(persisted);
 	});
