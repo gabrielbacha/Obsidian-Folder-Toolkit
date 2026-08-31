@@ -72,4 +72,22 @@ describe('appearance resolution', () => {
 		const fileInRoot = resolveAppearance('Root/file.md', { settings: settingsWithDescendants });
 		expect(fileInRoot.background?.hex).toBe('#3498DB');
 	});
+
+	it('applies alternating descendant borders only 1 level down from root', () => {
+		const settingsWithDescendants: FolderToolkitSettings = {
+			...settings,
+			appearanceRules: {
+				Root: {
+					descendants: { enabled: true, style: 'box', thickness: 'thin', shading: true },
+				},
+			},
+		};
+		// Direct child folder gets descendant border
+		const directSub = resolveAppearance('Root/Sub1', { settings: settingsWithDescendants });
+		expect(directSub.border?.style).toBe('box');
+
+		// Deeper nested folder does NOT get descendant border
+		const deepSub = resolveAppearance('Root/Sub1/NestedSub', { settings: settingsWithDescendants });
+		expect(deepSub.border).toBeNull();
+	});
 });

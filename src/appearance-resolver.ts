@@ -71,27 +71,24 @@ function effectiveBorder(
 	// Descendant border rules only apply to folders
 	if (!isFolderPath(path, context)) return undefined;
 
-	const parts = path.split('/');
-	for (const parent of parentPaths(path)) {
-		const descendants = context.settings.appearanceRules[parent]?.descendants;
-		if (descendants?.enabled) {
-			const template = paletteTemplate(context.settings.paletteTemplateId);
-			let slot = 0;
-			if (context.getDescendantIndex) {
-				const index = context.getDescendantIndex(path, parent);
-				slot = index % template.colors.length;
-			} else {
-				const parentParts = parent.split('/');
-				const depth = parts.length - parentParts.length;
-				slot = (depth - 1) % template.colors.length;
-			}
-			return {
-				style: descendants.style,
-				thickness: descendants.thickness,
-				shading: descendants.shading,
-				color: { kind: 'preset', slot },
-			};
+	// Alternating subfolder borders only apply 1 level down from the root folder
+	const parents = parentPaths(path);
+	if (parents.length === 0) return undefined;
+	const immediateParent = parents[0];
+	const descendants = context.settings.appearanceRules[immediateParent]?.descendants;
+	if (descendants?.enabled) {
+		const template = paletteTemplate(context.settings.paletteTemplateId);
+		let slot = 0;
+		if (context.getDescendantIndex) {
+			const index = context.getDescendantIndex(path, immediateParent);
+			slot = index % template.colors.length;
 		}
+		return {
+			style: descendants.style,
+			thickness: descendants.thickness,
+			shading: descendants.shading,
+			color: { kind: 'preset', slot },
+		};
 	}
 	return undefined;
 }

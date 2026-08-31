@@ -90,26 +90,11 @@ export class ExplorerManager {
 		const rootFolder = this.app.vault.getAbstractFileByPath(root);
 		if (!(rootFolder instanceof TFolder)) return 0;
 		const targetFile = this.app.vault.getAbstractFileByPath(path);
-		if (!targetFile) return 0;
+		if (!(targetFile instanceof TFolder)) return 0;
 
-		let index = -1;
-		let found = false;
-
-		const traverse = (folder: TFolder) => {
-			if (found) return;
-			const subfolders = folder.children.filter((c): c is TFolder => c instanceof TFolder);
-			subfolders.sort((a, b) => a.name.localeCompare(b.name));
-			for (const child of subfolders) {
-				index++;
-				if (child === targetFile) {
-					found = true;
-					return;
-				}
-				traverse(child);
-			}
-		};
-
-		traverse(rootFolder);
+		const directSubfolders = rootFolder.children.filter((c): c is TFolder => c instanceof TFolder);
+		directSubfolders.sort((a, b) => a.name.localeCompare(b.name));
+		const index = directSubfolders.indexOf(targetFile);
 		return Math.max(0, index);
 	}
 
