@@ -11,6 +11,8 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-background > .nav-file-title,
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-background:not(.ft-background-cascade) > .nav-folder-title {
 	background-color: color-mix(in srgb, var(--ft-background) 12%, transparent);
+	margin-inline-start: 0;
+	border-radius: var(--radius-s);
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-background > .nav-file-title:hover,
