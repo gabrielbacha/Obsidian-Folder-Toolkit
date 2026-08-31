@@ -1,7 +1,7 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, ColorChoice } from '../types';
+import type { AppearanceRule, BorderRule, ColorChoice } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
@@ -200,7 +200,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		const previews = card.createDiv('ft-rule-card__previews');
 		this.renderEffectPreview(previews, 'Text', rule.text?.choice);
 		this.renderEffectPreview(previews, 'Background', rule.background?.choice);
-		this.renderEffectPreview(previews, 'Border', rule.border?.color);
+		this.renderBorderPreview(previews, rule.border);
 
 		const actions = card.createDiv('ft-rule-card__actions');
 		const exists = this.toolkit.app.vault.getAbstractFileByPath(path) !== null;
@@ -246,6 +246,26 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			dot.style.setProperty('--ft-preview-color', color.hex);
 		}
 		preview.createSpan({ text: `${label}: ${choice?.kind === 'none' ? 'None' : color?.hex ?? 'Inherit'}` });
+	}
+
+	private renderBorderPreview(container: HTMLElement, border: BorderRule | undefined): void {
+		const preview = container.createDiv('ft-rule-preview');
+		const color = border ? resolveChoice(border.color, this.toolkit.settings.paletteTemplateId) : null;
+		if (color) {
+			const dot = preview.createSpan('ft-rule-preview__dot');
+			dot.style.setProperty('--ft-preview-color', color.hex);
+		}
+		if (!border) {
+			preview.createSpan({ text: 'Border: Inherit' });
+			return;
+		}
+		if (border.color.kind === 'none') {
+			preview.createSpan({ text: 'Border: None' });
+			return;
+		}
+		const scope = border.scope === 'self' ? 'This folder' : border.scope === 'descendants' ? 'Subfolders' : 'Both';
+		const shading = border.shade ? ' · Shaded' : '';
+		preview.createSpan({ text: `Border: ${color?.hex ?? 'Custom'} · ${border.thickness} · ${scope}${shading}` });
 	}
 
 	private ruleSection(container: HTMLElement, title: string, count: number): HTMLElement {

@@ -6,7 +6,8 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 - Independent text and background colors for folders and notes
 - Per-effect folder cascading with explicit inheritance blockers
-- Rounded-box or vertical-rail borders around folder subtrees
+- Rounded-box or vertical-rail borders with thin, medium, or thick strokes and optional light shading
+- Palette-cycled subfolder borders that visually separate sibling folder groups
 - Optional colored backgrounds or borders on open note tabs
 - The same eight switchable palette templates as Bases Visuals, plus custom hex colors
 - Permanent file and folder hiding with a searchable manager
@@ -19,13 +20,15 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 Right-click or long-press a file or folder and use the actions in Obsidian's plugin-action group:
 
-- **Edit folder colors…** or **Edit file colors…** opens a background-first color editor. Background is the primary treatment, folder borders can be enabled separately, and the optional text-color controls stay collapsed until needed. Folders can cascade effects to descendants. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
+- **Edit folder colors…** or **Edit file colors…** opens a background-first color editor. Background is the primary treatment, folder borders can target the current folder, its subfolders, or both, and the optional text-color controls stay collapsed until needed. Draft changes preview in an expanded miniature tree and directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
 - **Hide file/folder** permanently removes the item from the explorer until hidden items are shown or the path is unhidden.
 - **Focus this folder** temporarily hides unrelated branches. Use **Exit folder focus** from a visible folder or the command palette to restore the explorer.
 
 Use **Folder Toolkit: Toggle hidden items** to reveal hidden paths. The settings tab contains the palette selector and a searchable manager for all appearance and hidden-path rules.
 
 Set **Open note tabs** to **Colored background** or **Colored border** to carry each open note's effective cascaded colors into its workspace tab. Text rules color the tab title, while background rules independently color the tab surface or border.
+
+When a border targets subfolders, sibling folders automatically advance through distinct colors in the active palette. A direct child rule overrides the inherited treatment, while **No border** blocks it for that child subtree.
 
 When a file or folder is renamed or moved, saved rules follow the path and open tabs immediately resolve their appearance from the new folder hierarchy.
 

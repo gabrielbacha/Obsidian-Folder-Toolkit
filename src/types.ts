@@ -17,10 +17,15 @@ export interface EffectRule {
 }
 
 export type BorderStyle = 'box' | 'rail';
+export type BorderThickness = 'thin' | 'medium' | 'thick';
+export type BorderScope = 'self' | 'descendants' | 'both';
 
 export interface BorderRule {
 	style: BorderStyle;
-	color: Exclude<ColorChoice, { kind: 'none' }>;
+	color: ColorChoice;
+	thickness: BorderThickness;
+	shade: boolean;
+	scope: BorderScope;
 }
 
 export interface AppearanceRule {

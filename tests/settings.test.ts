@@ -32,5 +32,19 @@ describe('settings normalization', () => {
 		expect(normalizeSettings({ tabStyle: 'border' }).tabStyle).toBe('border');
 		expect(normalizeSettings({ tabStyle: 'rainbow' }).tabStyle).toBe('off');
 	});
-});
 
+	it('preserves legacy border appearance and normalizes new border options', () => {
+		const normalized = normalizeSettings({
+			appearanceRules: {
+				LegacyBox: { border: { style: 'box', color: { kind: 'preset', slot: 1 } } },
+				LegacyRail: { border: { style: 'rail', color: { kind: 'preset', slot: 2 } } },
+				Modern: { border: { style: 'rail', color: { kind: 'preset', slot: 3 }, thickness: 'thick', shade: true, scope: 'both' } },
+				Blocker: { border: { style: 'box', color: { kind: 'none' }, thickness: 'medium', scope: 'both' } },
+			},
+		});
+		expect(normalized.appearanceRules.LegacyBox?.border).toMatchObject({ thickness: 'thin', shade: false, scope: 'self' });
+		expect(normalized.appearanceRules.LegacyRail?.border).toMatchObject({ thickness: 'medium', shade: false, scope: 'self' });
+		expect(normalized.appearanceRules.Modern?.border).toMatchObject({ thickness: 'thick', shade: true, scope: 'both' });
+		expect(normalized.appearanceRules.Blocker?.border?.color).toEqual({ kind: 'none' });
+	});
+});

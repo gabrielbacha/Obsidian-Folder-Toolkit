@@ -62,7 +62,7 @@ describe('ExplorerManager', () => {
 		root = document.createElement('div');
 		const container = document.createElement('div');
 		container.className = 'nav-files-container';
-		container.append(folder('A', [folder('A/B', [file('A/B/note.md')])]), folder('Other'));
+		container.append(folder('A', [folder('A/B', [file('A/B/note.md')]), folder('A/C')]), folder('Other'));
 		root.append(container);
 		document.body.append(root);
 		settings = {
@@ -72,7 +72,7 @@ describe('ExplorerManager', () => {
 			appearanceRules: {
 				A: {
 					text: { choice: { kind: 'preset', slot: 0 }, cascade: true },
-					border: { style: 'box', color: { kind: 'preset', slot: 1 } },
+					border: { style: 'box', color: { kind: 'preset', slot: 1 }, thickness: 'thin', shade: false, scope: 'self' },
 				},
 			},
 			hiddenPaths: ['A/B/note.md'],
@@ -117,7 +117,7 @@ describe('ExplorerManager', () => {
 		manager.syncLeaves();
 		previews.set('A/B', {
 			background: { choice: { kind: 'preset', slot: 2 }, cascade: true },
-			border: { style: 'rail', color: { kind: 'preset', slot: 3 } },
+			border: { style: 'rail', color: { kind: 'preset', slot: 3 }, thickness: 'medium', shade: false, scope: 'self' },
 		});
 		manager.reconcile();
 		const folderRow = root.querySelector<HTMLElement>('[data-path="A/B"]')!.parentElement!;
@@ -172,6 +172,25 @@ describe('ExplorerManager', () => {
 		expect(removeWrites.addClass).not.toHaveBeenCalled();
 		expect(removeWrites.setStyle).not.toHaveBeenCalled();
 		restoreDomWriteSpies(removeWrites);
+		manager.stop();
+	});
+
+	it('applies thickness, shading, and distinct palette colors to sibling subfolders', () => {
+		settings.appearanceRules.A.border = {
+			style: 'rail', color: { kind: 'preset', slot: 0 }, thickness: 'thick', shade: true, scope: 'descendants',
+		};
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
+		manager.syncLeaves();
+		manager.reconcile();
+		const rowFor = (path: string) => root.querySelector<HTMLElement>(`[data-path="${path}"]`)!.parentElement!;
+		const first = rowFor('A/B');
+		const second = rowFor('A/C');
+		expect(rowFor('A').hasClass('ft-border-rail')).toBe(false);
+		expect(first.hasClass('ft-border-rail')).toBe(true);
+		expect(first.hasClass('ft-border-shade')).toBe(true);
+		expect(first.style.getPropertyValue('--ft-border-width')).toBe('3px');
+		expect(first.style.getPropertyValue('--ft-border')).toBe('#3498DB');
+		expect(second.style.getPropertyValue('--ft-border')).toBe('#8E44AD');
 		manager.stop();
 	});
 });

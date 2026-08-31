@@ -36,7 +36,12 @@ function normalizeEffect(value: unknown, paletteLength: number): EffectRule | un
 function normalizeBorder(value: unknown, paletteLength: number): BorderRule | undefined {
 	if (!isRecord(value) || (value.style !== 'box' && value.style !== 'rail')) return undefined;
 	const color = normalizeChoice(value.color, paletteLength);
-	return color && color.kind !== 'none' ? { style: value.style, color } : undefined;
+	if (!color) return undefined;
+	const thickness = value.thickness === 'thin' || value.thickness === 'medium' || value.thickness === 'thick'
+		? value.thickness
+		: value.style === 'box' ? 'thin' : 'medium';
+	const scope = value.scope === 'descendants' || value.scope === 'both' ? value.scope : 'self';
+	return { style: value.style, color, thickness, shade: value.shade === true, scope };
 }
 
 function normalizeAppearance(value: unknown, paletteLength: number): AppearanceRule | null {

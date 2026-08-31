@@ -6,10 +6,18 @@ import type { AppearanceRule, BorderRule, ColorChoice } from '../types';
 
 type EffectKey = 'text' | 'background';
 
+interface PreviewItem {
+	node: HTMLElement;
+	row: HTMLElement;
+	path: string;
+	isFolder: boolean;
+	borderPaletteOffset: number;
+}
+
 export class AppearanceModal extends Modal {
 	private draft: AppearanceRule;
 	private readonly isFolder: boolean;
-	private previewEl: HTMLElement | null = null;
+	private previewItems: PreviewItem[] = [];
 	private pickerCleanups: Array<() => void> = [];
 	private textExpanded = false;
 	private rememberedBorder: BorderRule;
@@ -22,9 +30,13 @@ export class AppearanceModal extends Modal {
 		super(toolkit.app);
 		this.draft = structuredClone(toolkit.settings.appearanceRules[path] ?? {});
 		this.isFolder = toolkit.app.vault.getAbstractFileByPath(path) instanceof TFolder;
-		this.rememberedBorder = structuredClone(this.draft.border ?? {
+		const savedBorder = this.draft.border;
+		this.rememberedBorder = structuredClone(savedBorder && savedBorder.color.kind !== 'none' ? savedBorder : {
 			style: 'box',
 			color: { kind: 'preset', slot: 0 },
+			thickness: 'medium',
+			shade: false,
+			scope: 'self',
 		});
 	}
 
@@ -37,7 +49,7 @@ export class AppearanceModal extends Modal {
 		this.clearPickerListeners();
 		this.toolkit.clearAppearancePreview(this.path);
 		this.contentEl.empty();
-		this.previewEl = null;
+		this.previewItems = [];
 	}
 
 	private render(): void {
@@ -78,12 +90,42 @@ export class AppearanceModal extends Modal {
 	private renderPreview(): void {
 		const preview = this.contentEl.createDiv('ft-live-preview');
 		preview.createDiv({ text: 'Preview', cls: 'ft-live-preview__label' });
-		const row = preview.createDiv('ft-live-preview__row');
-		const icon = row.createSpan('ft-live-preview__icon');
-		setIcon(icon, this.isFolder ? 'folder' : 'file-text');
-		row.createSpan({ text: this.path.split('/').at(-1) ?? this.path, cls: 'ft-live-preview__name' });
-		this.previewEl = row;
+		const tree = preview.createDiv('ft-live-preview__tree');
+		this.previewItems = [];
+		const name = this.path.split('/').at(-1) ?? this.path;
+		if (this.isFolder) {
+			const root = this.createPreviewItem(tree, this.path, name, true, 0);
+			const children = root.node.createDiv('ft-live-preview__children');
+			this.createPreviewItem(children, `${this.path}/Sample folder`, 'Sample folder', true, 0);
+			this.createPreviewItem(children, `${this.path}/Sample note.md`, 'Sample note', false, 0);
+		} else {
+			const parentPath = this.path.split('/').slice(0, -1).join('/');
+			const parent = this.createPreviewItem(tree, parentPath, parentPath.split('/').at(-1) ?? 'Vault', true, 0);
+			const children = parent.node.createDiv('ft-live-preview__children');
+			this.createPreviewItem(children, this.path, name, false, 0);
+		}
 		this.updateModalPreview();
+	}
+
+	private createPreviewItem(
+		container: HTMLElement,
+		path: string,
+		name: string,
+		isFolder: boolean,
+		borderPaletteOffset: number,
+	): PreviewItem {
+		const node = container.createDiv(`ft-live-preview__node${isFolder ? ' is-folder' : ' is-file'}`);
+		const row = node.createDiv('ft-live-preview__row');
+		if (isFolder) {
+			const collapse = row.createSpan('ft-live-preview__collapse');
+			setIcon(collapse, 'chevron-down');
+		}
+		const icon = row.createSpan('ft-live-preview__icon');
+		setIcon(icon, isFolder ? 'folder' : 'file-text');
+		row.createSpan({ text: name, cls: 'ft-live-preview__name' });
+		const item = { node, row, path, isFolder, borderPaletteOffset };
+		this.previewItems.push(item);
+		return item;
 	}
 
 	private refreshPreview(): void {
@@ -92,23 +134,30 @@ export class AppearanceModal extends Modal {
 	}
 
 	private updateModalPreview(): void {
-		if (!this.previewEl) return;
 		const appearanceRules = { ...this.toolkit.settings.appearanceRules };
 		if (Object.keys(this.draft).length === 0) delete appearanceRules[this.path];
 		else appearanceRules[this.path] = structuredClone(this.draft);
-		const appearance = resolveAppearance(this.path, { ...this.toolkit.settings, appearanceRules });
-		const row = this.previewEl;
-		row.classList.toggle('ft-preview-has-text', appearance.text !== null);
-		row.classList.toggle('ft-preview-has-background', appearance.background !== null);
-		row.classList.toggle('ft-preview-border-box', appearance.border?.style === 'box');
-		row.classList.toggle('ft-preview-border-rail', appearance.border?.style === 'rail');
-		for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-background', '--ft-preview-border']) row.style.removeProperty(property);
-		if (appearance.text) {
-			row.style.setProperty('--ft-preview-text-light', appearance.text.foregroundLight);
-			row.style.setProperty('--ft-preview-text-dark', appearance.text.foregroundDark);
+		const settings = { ...this.toolkit.settings, appearanceRules };
+		for (const item of this.previewItems) {
+			const appearance = resolveAppearance(item.path, settings, { borderPaletteOffset: item.borderPaletteOffset });
+			item.node.classList.toggle('ft-preview-has-text', appearance.text !== null);
+			item.node.classList.toggle('ft-preview-has-background', appearance.background !== null);
+			item.node.classList.toggle('ft-preview-border-box', item.isFolder && appearance.border?.style === 'box');
+			item.node.classList.toggle('ft-preview-border-rail', item.isFolder && appearance.border?.style === 'rail');
+			item.node.classList.toggle('ft-preview-border-shade', item.isFolder && appearance.border?.shade === true);
+			for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-background', '--ft-preview-border', '--ft-preview-border-width']) {
+				item.node.style.removeProperty(property);
+			}
+			if (appearance.text) {
+				item.node.style.setProperty('--ft-preview-text-light', appearance.text.foregroundLight);
+				item.node.style.setProperty('--ft-preview-text-dark', appearance.text.foregroundDark);
+			}
+			if (appearance.background) item.node.style.setProperty('--ft-preview-background', appearance.background.hex);
+			if (appearance.border) {
+				item.node.style.setProperty('--ft-preview-border', appearance.border.color.hex);
+				item.node.style.setProperty('--ft-preview-border-width', { thin: '1px', medium: '2px', thick: '3px' }[appearance.border.thickness]);
+			}
 		}
-		if (appearance.background) row.style.setProperty('--ft-preview-background', appearance.background.hex);
-		if (appearance.border) row.style.setProperty('--ft-preview-border', appearance.border.color.hex);
 	}
 
 	private renderEffect(container: HTMLElement, key: EffectKey, label: string): void {
@@ -163,53 +212,92 @@ export class AppearanceModal extends Modal {
 	}
 
 	private renderCascade(container: HTMLElement, key: EffectKey, enabled: boolean): void {
-		const cascade = container.createEl('label', { cls: 'ft-cascade-control' });
-		const checkbox = cascade.createEl('input', { attr: { type: 'checkbox' } });
-		checkbox.checked = this.draft[key]?.cascade ?? true;
-		checkbox.disabled = !enabled;
-		cascade.createSpan({ text: 'Include descendants' });
-		checkbox.addEventListener('change', () => {
+		this.renderPillToggle(container, 'Include descendants', this.draft[key]?.cascade ?? true, enabled, (checked) => {
 			const current = this.draft[key];
-			if (current) this.draft[key] = { ...current, cascade: checkbox.checked };
+			if (current) this.draft[key] = { ...current, cascade: checked };
 			this.refreshPreview();
 		});
 	}
 
 	private renderBorder(container: HTMLElement): void {
-		const card = container.createDiv(`ft-color-card ft-color-card--border${this.draft.border ? '' : ' is-disabled'}`);
+		const active = this.draft.border !== undefined && this.draft.border.color.kind !== 'none';
+		const card = container.createDiv(`ft-color-card ft-color-card--border${active ? '' : ' is-disabled'}`);
 		const header = card.createDiv('ft-color-card__header');
 		header.createEl('h3', { text: 'Border' });
-		const toggle = header.createEl('label', { cls: 'ft-border-toggle' });
-		const checkbox = toggle.createEl('input', { attr: { type: 'checkbox' } });
-		checkbox.checked = this.draft.border !== undefined;
-		toggle.createSpan({ text: 'Enable border' });
-		checkbox.addEventListener('change', () => {
-			if (checkbox.checked) this.draft.border = structuredClone(this.rememberedBorder);
-			else {
-				if (this.draft.border) this.rememberedBorder = structuredClone(this.draft.border);
-				delete this.draft.border;
-			}
+		const modes = card.createDiv('ft-choice-row');
+		this.choiceButton(modes, 'Inherit', this.draft.border === undefined, () => { delete this.draft.border; this.render(); });
+		this.choiceButton(modes, 'No border', this.draft.border?.color.kind === 'none', () => {
+			this.draft.border = { ...structuredClone(this.rememberedBorder), color: { kind: 'none' }, scope: 'both' };
 			this.render();
 		});
+		this.choiceButton(modes, 'Border', active, () => { this.draft.border = structuredClone(this.rememberedBorder); this.render(); });
+
+		const scope = card.createDiv('ft-border-option');
+		scope.createDiv({ text: 'Apply border to', cls: 'ft-border-option__label' });
+		const scopeChoices = scope.createDiv('ft-choice-row');
+		for (const [value, label] of [['self', 'This folder'], ['descendants', 'Subfolders'], ['both', 'Both']] as const) {
+			this.choiceButton(scopeChoices, label, this.rememberedBorder.scope === value, () => {
+				this.rememberedBorder = { ...this.rememberedBorder, scope: value };
+				if (active) this.draft.border = structuredClone(this.rememberedBorder);
+				this.render();
+			});
+		}
+
 		const styles = card.createDiv('ft-choice-row');
 		this.choiceButton(styles, 'Rounded box', this.rememberedBorder.style === 'box', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'box' };
-			if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+			if (active) this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
 		this.choiceButton(styles, 'Vertical rail', this.rememberedBorder.style === 'rail', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'rail' };
-			if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+			if (active) this.draft.border = structuredClone(this.rememberedBorder);
+			this.render();
+		});
+		const thickness = card.createDiv('ft-border-option');
+		thickness.createDiv({ text: 'Thickness', cls: 'ft-border-option__label' });
+		const thicknessChoices = thickness.createDiv('ft-choice-row');
+		for (const [value, label] of [['thin', 'Thin'], ['medium', 'Medium'], ['thick', 'Thick']] as const) {
+			this.choiceButton(thicknessChoices, label, this.rememberedBorder.thickness === value, () => {
+				this.rememberedBorder = { ...this.rememberedBorder, thickness: value };
+				if (active) this.draft.border = structuredClone(this.rememberedBorder);
+				this.render();
+			});
+		}
+		this.renderPillToggle(card, 'Light shading', this.rememberedBorder.shade, active, (checked) => {
+			this.rememberedBorder = { ...this.rememberedBorder, shade: checked };
+			if (this.draft.border?.color.kind !== 'none') this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
 		this.renderColorChoices(card, this.rememberedBorder.color, (choice, rerender) => {
 			if (choice.kind !== 'none') {
 				this.rememberedBorder = { ...this.rememberedBorder, color: choice };
-				if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+				if (active) this.draft.border = structuredClone(this.rememberedBorder);
 			}
 			if (rerender) this.render();
 			else this.refreshPreview();
-		}, this.draft.border !== undefined);
+		}, active);
+		if (this.rememberedBorder.scope !== 'self') {
+			card.createDiv({ text: 'Subfolders cycle through distinct colors from the active palette. Direct child rules override the inherited border.', cls: 'ft-card-hint' });
+		}
+	}
+
+	private renderPillToggle(
+		container: HTMLElement,
+		label: string,
+		checked: boolean,
+		enabled: boolean,
+		onChange: (checked: boolean) => void,
+	): void {
+		const control = container.createDiv('ft-pill-control');
+		control.createSpan({ text: label, cls: 'ft-pill-control__label' });
+		const toggle = control.createEl('button', {
+			cls: 'ft-pill-toggle',
+			attr: { type: 'button', role: 'switch', 'aria-checked': String(checked), 'aria-label': label },
+		});
+		toggle.disabled = !enabled;
+		toggle.createSpan('ft-pill-toggle__thumb');
+		toggle.addEventListener('click', () => onChange(!checked));
 	}
 
 	private renderColorChoices(

@@ -6,12 +6,15 @@ import type { FolderToolkitSettings } from './types';
 
 const MANAGED_CLASSES = [
 	'ft-has-text', 'ft-has-background', 'ft-border-box', 'ft-border-rail',
+	'ft-border-shade',
 	'ft-permanent-hidden', 'ft-focus-hidden', 'ft-focus-ancestor', 'ft-focus-root',
 ] as const;
 
 const MANAGED_PROPERTIES = [
-	'--ft-text-light', '--ft-text-dark', '--ft-background', '--ft-border',
+	'--ft-text-light', '--ft-text-dark', '--ft-background', '--ft-border', '--ft-border-width',
 ] as const;
+
+const BORDER_WIDTHS = { thin: '1px', medium: '2px', thick: '3px' } as const;
 
 function isHtmlElement(element: Element): element is HTMLElement {
 	return 'style' in element && 'dataset' in element;
@@ -91,7 +94,7 @@ export class ExplorerManager {
 		settings: FolderToolkitSettings,
 		focusPath: string | null,
 	): void {
-		const appearance = resolveAppearance(path, settings);
+		const appearance = resolveAppearance(path, settings, { borderPaletteOffset: this.folderSiblingIndex(row) });
 		const relation = focusRelation(path, focusPath);
 		const hasText = appearance.text !== null;
 		const hasBackground = appearance.background !== null;
@@ -101,6 +104,7 @@ export class ExplorerManager {
 		syncClass(row, 'ft-has-background', hasBackground);
 		syncClass(row, 'ft-border-box', hasBorder && appearance.border?.style === 'box');
 		syncClass(row, 'ft-border-rail', hasBorder && appearance.border?.style === 'rail');
+		syncClass(row, 'ft-border-shade', hasBorder && appearance.border?.shade === true);
 		syncClass(row, 'ft-permanent-hidden', !settings.showHiddenItems && hiddenBy(path, settings.hiddenPaths) !== null);
 		syncClass(row, 'ft-focus-hidden', relation === 'outside');
 		syncClass(row, 'ft-focus-ancestor', relation === 'ancestor');
@@ -110,6 +114,20 @@ export class ExplorerManager {
 		syncStyle(row.style, '--ft-text-dark', appearance.text?.foregroundDark ?? null);
 		syncStyle(row.style, '--ft-background', appearance.background?.hex ?? null);
 		syncStyle(row.style, '--ft-border', hasBorder ? appearance.border?.color.hex ?? null : null);
+		syncStyle(row.style, '--ft-border-width', hasBorder && appearance.border ? BORDER_WIDTHS[appearance.border.thickness] : null);
+	}
+
+	private folderSiblingIndex(row: HTMLElement): number {
+		if (!row.classList.contains('nav-folder')) return 0;
+		const siblings = row.parentElement?.children;
+		if (!siblings) return 0;
+		let folderIndex = 0;
+		for (const sibling of siblings) {
+			if (!isHtmlElement(sibling) || !sibling.classList.contains('nav-folder')) continue;
+			if (sibling === row) return folderIndex;
+			folderIndex += 1;
+		}
+		return 0;
 	}
 
 	private clearRoot(root: HTMLElement): void {

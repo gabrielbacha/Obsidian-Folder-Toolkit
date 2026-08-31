@@ -22,7 +22,7 @@ describe('AppearancePreviewStore', () => {
 		const previews = new AppearancePreviewStore();
 		previews.set('A', {
 			background: { choice: { kind: 'preset', slot: 1 }, cascade: true },
-			border: { style: 'rail', color: { kind: 'preset', slot: 2 } },
+			border: { style: 'rail', color: { kind: 'preset', slot: 2 }, thickness: 'medium', shade: false, scope: 'self' },
 		});
 		const effective = previews.apply(persisted);
 		expect(resolveAppearance('A/note.md', effective).background?.hex).toBe('#3498DB');
