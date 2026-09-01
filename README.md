@@ -2,6 +2,10 @@
 
 Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily simplify. It combines independent folder and note colors, cascading folder styles, subtree borders, permanent hiding, and session-only folder focus.
 
+## Screenshots
+
+![Folder Toolkit file explorer styling with cascading colors, subtree borders, and shading](Screenshot1.png)
+
 ## Features
 
 - Independent text and background colors for folders and notes
