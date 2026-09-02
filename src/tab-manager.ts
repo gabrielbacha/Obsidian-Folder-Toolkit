@@ -4,18 +4,27 @@ import { syncClass, syncStyle } from './dom-sync';
 import type { FolderToolkitSettings } from './types';
 
 const TAB_CLASSES = ['ft-tab-has-text', 'ft-tab-background', 'ft-tab-border'] as const;
-const TAB_PROPERTIES = ['--ft-tab-text', '--ft-tab-background', '--ft-tab-border'] as const;
+const TAB_PROPERTIES = [
+	'--ft-tab-text', '--ft-tab-background', '--ft-tab-border', '--ft-tab-strength', '--ft-tab-hover-strength',
+	'--ft-tab-text-dark', '--ft-tab-text-strength',
+] as const;
 
 export interface TabAccents {
 	text: string | null;
+	textDark: string | null;
+	textStrength: number | null;
 	background: string | null;
+	backgroundStrength: number | null;
 }
 
 export function tabAccents(path: string, settings: FolderToolkitSettings): TabAccents {
 	const appearance = resolveAppearance(path, { settings });
 	return {
-		text: appearance.text?.hex ?? null,
+		text: appearance.text?.foregroundLight ?? null,
+		textDark: appearance.text?.foregroundDark ?? null,
+		textStrength: appearance.text?.strength ?? null,
 		background: appearance.background?.hex ?? null,
+		backgroundStrength: appearance.background?.strength ?? null,
 	};
 }
 
@@ -62,8 +71,12 @@ export class TabManager {
 				syncClass(header, 'ft-tab-background', useBackground);
 				syncClass(header, 'ft-tab-border', useBorder);
 				syncStyle(header.style, '--ft-tab-text', accents.text);
+				syncStyle(header.style, '--ft-tab-text-dark', accents.textDark);
+				syncStyle(header.style, '--ft-tab-text-strength', accents.textStrength === null ? null : `${accents.textStrength}%`);
 				syncStyle(header.style, '--ft-tab-background', useBackground ? accents.background : null);
 				syncStyle(header.style, '--ft-tab-border', useBorder ? accents.background : null);
+				syncStyle(header.style, '--ft-tab-strength', accents.backgroundStrength === null ? null : `${accents.backgroundStrength}%`);
+				syncStyle(header.style, '--ft-tab-hover-strength', accents.backgroundStrength === null ? null : `${Math.min(100, accents.backgroundStrength + 8)}%`);
 			});
 		}
 

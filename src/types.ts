@@ -7,8 +7,8 @@ export const PALETTE_TEMPLATE_IDS = [
 export type PaletteTemplateId = (typeof PALETTE_TEMPLATE_IDS)[number];
 
 export type ColorChoice =
-	| { kind: 'preset'; slot: number }
-	| { kind: 'custom'; hex: string }
+	| { kind: 'preset'; slot: number; strength?: number }
+	| { kind: 'custom'; hex: string; strength?: number }
 	| { kind: 'none' };
 
 export interface EffectRule {

@@ -245,7 +245,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			const dot = preview.createSpan('ft-rule-preview__dot');
 			dot.style.setProperty('--ft-preview-color', color.hex);
 		}
-		preview.createSpan({ text: `${label}: ${choice?.kind === 'none' ? 'None' : color?.hex ?? 'Inherit'}` });
+		const strength = color?.strength === undefined ? '' : ` · ${color.strength}% strength`;
+		preview.createSpan({ text: `${label}: ${choice?.kind === 'none' ? 'None' : color ? `${color.hex}${strength}` : 'Inherit'}` });
 	}
 
 	private ruleSection(container: HTMLElement, title: string, count: number): HTMLElement {

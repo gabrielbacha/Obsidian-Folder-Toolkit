@@ -13,7 +13,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 - Rounded-box or vertical-rail borders around folder subtrees, with optional shaded interiors
 - Alternating active-palette borders for direct subfolders
 - Optional colored backgrounds or borders on open note tabs
-- The same eight switchable palette templates as Bases Visuals, plus custom hex colors
+- The same eight switchable palette templates as Bases Visuals, plus custom hex colors and adjustable color strength
 - Permanent file and folder hiding with a searchable manager
 - A temporary focused-folder view that presents any nested folder as the visible explorer root
 - Segment-safe path updates when files and folders are renamed or deleted

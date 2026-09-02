@@ -9,6 +9,17 @@ describe('settings normalization', () => {
 		expect(settings).not.toBe(DEFAULT_SETTINGS);
 	});
 
+	it('normalizes color strength for custom and palette colors', () => {
+		const settings = normalizeSettings({
+			appearanceRules: {
+				A: { text: { choice: { kind: 'custom', hex: '#123456', strength: 42 }, cascade: false } },
+				B: { text: { choice: { kind: 'preset', slot: 1, strength: 140 }, cascade: false } },
+			},
+		});
+		expect(settings.appearanceRules.A?.text?.choice).toEqual({ kind: 'custom', hex: '#123456', strength: 42 });
+		expect(settings.appearanceRules.B?.text?.choice).toEqual({ kind: 'preset', slot: 1, strength: 100 });
+	});
+
 	it('normalizes colors, removes malformed rules, and deduplicates hidden paths', () => {
 		const settings = normalizeSettings({
 			schemaVersion: 99,
@@ -33,4 +44,3 @@ describe('settings normalization', () => {
 		expect(normalizeSettings({ tabStyle: 'rainbow' }).tabStyle).toBe('off');
 	});
 });
-

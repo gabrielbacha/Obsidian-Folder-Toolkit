@@ -9,6 +9,7 @@ export interface PaletteTemplate {
 
 export interface ResolvedColor {
 	hex: string;
+	strength?: number;
 	foregroundLight: string;
 	foregroundDark: string;
 }
@@ -53,21 +54,46 @@ export function resolveChoice(choice: ColorChoice, paletteId: PaletteTemplateId)
 	if (!hex) return null;
 	return {
 		hex,
+		...(choice.strength === undefined ? {} : { strength: normalizeStrength(choice.strength) }),
 		foregroundLight: adjustForContrast(hex, '#FFFFFF'),
 		foregroundDark: adjustForContrast(hex, '#1E1E1E'),
 	};
+}
+
+export function normalizeStrength(input: unknown): number {
+	return typeof input === 'number' && Number.isFinite(input)
+		? Math.min(100, Math.max(0, Math.round(input)))
+		: 100;
 }
 
 export function resolveTextAgainstBackground(
 	text: ResolvedColor,
 	background: ResolvedColor | null,
 ): ResolvedColor {
-	const lightSurface = background ? mixHex('#FFFFFF', background.hex, 0.12) : '#FFFFFF';
-	const darkSurface = background ? mixHex('#1E1E1E', background.hex, 0.12) : '#1E1E1E';
+	const backgroundAmount = (background?.strength ?? 12) / 100;
+	const lightSurface = background ? mixHex('#FFFFFF', background.hex, backgroundAmount) : '#FFFFFF';
+	const darkSurface = background ? mixHex('#1E1E1E', background.hex, backgroundAmount) : '#1E1E1E';
 	return {
 		...text,
 		foregroundLight: adjustForContrast(text.hex, lightSurface),
 		foregroundDark: adjustForContrast(text.hex, darkSurface),
+	};
+}
+
+export function resolveAutomaticText(background: ResolvedColor): ResolvedColor {
+	const amount = (background.strength ?? 12) / 100;
+	const lightSurface = mixHex('#FFFFFF', background.hex, amount);
+	const darkSurface = mixHex('#1E1E1E', background.hex, amount);
+	const mostReadable = (surface: string) => contrastRatio('#FFFFFF', surface) >= contrastRatio('#000000', surface)
+		? '#FFFFFF'
+		: '#000000';
+	const foregroundLight = mostReadable(lightSurface);
+	const foregroundDark = mostReadable(darkSurface);
+	return {
+		hex: foregroundLight,
+		strength: 100,
+		foregroundLight,
+		foregroundDark,
 	};
 }
 

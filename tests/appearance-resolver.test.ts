@@ -20,6 +20,20 @@ const settings: FolderToolkitSettings = {
 };
 
 describe('appearance resolution', () => {
+	it('automatically contrasts text for strengthened backgrounds unless text is explicit', () => {
+		const automaticSettings: FolderToolkitSettings = {
+			...settings,
+			appearanceRules: {
+				A: { background: { choice: { kind: 'custom', hex: '#111111', strength: 100 }, cascade: true } },
+				B: {
+					background: { choice: { kind: 'custom', hex: '#111111', strength: 100 }, cascade: true },
+					text: { choice: { kind: 'custom', hex: '#FF0000' }, cascade: true },
+				},
+			},
+		};
+		expect(resolveAppearance('A/note.md', { settings: automaticSettings }).text?.foregroundLight).toBe('#FFFFFF');
+		expect(resolveAppearance('B/note.md', { settings: automaticSettings }).text?.hex).toBe('#FF0000');
+	});
 	it('inherits each effect independently', () => {
 		const resolved = resolveAppearance('A/note.md', { settings });
 		expect(resolved.text?.hex).toBe('#16A085');

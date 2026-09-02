@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeHex, paletteTemplate, resolveChoice } from '../src/colors';
+import { normalizeHex, paletteTemplate, resolveAutomaticText, resolveChoice } from '../src/colors';
 
 describe('colors', () => {
 	it('normalizes valid hex values', () => {
 		expect(normalizeHex('abc')).toBe('#AABBCC');
 		expect(normalizeHex('#12ef90')).toBe('#12EF90');
 		expect(normalizeHex('not-a-color')).toBeNull();
+	});
+
+	it('chooses readable automatic text for strong backgrounds', () => {
+		const dark = resolveChoice({ kind: 'custom', hex: '#111111', strength: 100 }, 'default')!;
+		const light = resolveChoice({ kind: 'custom', hex: '#FFFF00', strength: 100 }, 'default')!;
+		expect(resolveAutomaticText(dark).foregroundLight).toBe('#FFFFFF');
+		expect(resolveAutomaticText(light).foregroundLight).toBe('#000000');
 	});
 
 	it('uses the same eight palette templates as Bases Visuals', () => {
@@ -17,7 +24,8 @@ describe('colors', () => {
 		expect(resolveChoice({ kind: 'preset', slot: 0 }, 'default')?.hex).toBe('#16A085');
 		expect(resolveChoice({ kind: 'preset', slot: 0 }, 'ember')?.hex).toBe('#03071E');
 		expect(resolveChoice({ kind: 'custom', hex: '#123456' }, 'ember')?.hex).toBe('#123456');
+		expect(resolveChoice({ kind: 'custom', hex: '#123456', strength: 75 }, 'ember')?.strength).toBe(75);
+		expect(resolveChoice({ kind: 'preset', slot: 0, strength: 100 }, 'ember')?.strength).toBe(100);
 		expect(resolveChoice({ kind: 'none' }, 'default')).toBeNull();
 	});
 });
-

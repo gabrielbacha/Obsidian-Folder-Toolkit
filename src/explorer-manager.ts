@@ -13,6 +13,7 @@ const MANAGED_CLASSES = [
 
 const MANAGED_PROPERTIES = [
 	'--ft-text-light', '--ft-text-dark', '--ft-background', '--ft-border', '--ft-border-width',
+	'--ft-text-strength', '--ft-background-strength', '--ft-background-hover-strength', '--ft-border-strength',
 ] as const;
 
 function isHtmlElement(element: Element): element is HTMLElement {
@@ -133,6 +134,7 @@ export class ExplorerManager {
 			syncClass(row, 'ft-border-box', appearance.border.style === 'box');
 			syncClass(row, 'ft-border-rail', appearance.border.style === 'rail');
 			syncStyle(row.style, '--ft-border', appearance.border.color.hex);
+			syncStyle(row.style, '--ft-border-strength', appearance.border.color.strength === undefined ? null : `${appearance.border.color.strength}%`);
 			
 			const thicknessMap = appearance.border.style === 'box'
 				? { thin: '1px', medium: '2px', thick: '3px' }
@@ -147,6 +149,7 @@ export class ExplorerManager {
 			syncClass(row, 'ft-border-shaded', false);
 			syncStyle(row.style, '--ft-border', null);
 			syncStyle(row.style, '--ft-border-width', null);
+			syncStyle(row.style, '--ft-border-strength', null);
 		}
 
 		syncClass(row, 'ft-permanent-hidden', !settings.showHiddenItems && hiddenBy(path, settings.hiddenPaths) !== null);
@@ -156,7 +159,11 @@ export class ExplorerManager {
 
 		syncStyle(row.style, '--ft-text-light', appearance.text?.foregroundLight ?? null);
 		syncStyle(row.style, '--ft-text-dark', appearance.text?.foregroundDark ?? null);
+		syncStyle(row.style, '--ft-text-strength', appearance.text?.strength === undefined ? null : `${appearance.text.strength}%`);
 		syncStyle(row.style, '--ft-background', appearance.background?.hex ?? null);
+		const backgroundStrength = appearance.background?.strength;
+		syncStyle(row.style, '--ft-background-strength', backgroundStrength === undefined ? null : `${backgroundStrength}%`);
+		syncStyle(row.style, '--ft-background-hover-strength', backgroundStrength === undefined ? null : `${Math.min(100, backgroundStrength + 6)}%`);
 	}
 
 	private clearRoot(root: HTMLElement): void {

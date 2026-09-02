@@ -1,4 +1,4 @@
-import { normalizeHex, normalizePaletteTemplateId, paletteTemplate } from './colors';
+import { normalizeHex, normalizePaletteTemplateId, normalizeStrength, paletteTemplate } from './colors';
 import {
 	DEFAULT_SETTINGS,
 	SCHEMA_VERSION,
@@ -19,11 +19,14 @@ function normalizeChoice(value: unknown, paletteLength: number): ColorChoice | n
 	if (value.kind === 'none') return { kind: 'none' };
 	if (value.kind === 'custom') {
 		const hex = normalizeHex(value.hex);
-		return hex ? { kind: 'custom', hex } : null;
+		if (!hex) return null;
+		return { kind: 'custom', hex, ...(value.strength === undefined ? {} : { strength: normalizeStrength(value.strength) }) };
 	}
 	if (value.kind === 'preset' && Number.isInteger(value.slot)) {
 		const slot = Number(value.slot);
-		return slot >= 0 && slot < Math.max(paletteLength, 10) ? { kind: 'preset', slot } : null;
+		return slot >= 0 && slot < Math.max(paletteLength, 10)
+			? { kind: 'preset', slot, ...(value.strength === undefined ? {} : { strength: normalizeStrength(value.strength) }) }
+			: null;
 	}
 	return null;
 }

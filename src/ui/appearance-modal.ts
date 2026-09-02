@@ -175,7 +175,7 @@ export class AppearanceModal extends Modal {
 			el.classList.toggle('ft-preview-border-rail', !!(hasBorder && appearance.border?.style === 'rail'));
 			el.classList.toggle('ft-preview-border-shaded', !!(hasBorder && appearance.border?.shading));
 
-			for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-background', '--ft-preview-border', '--ft-preview-border-width']) {
+			for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-text-strength', '--ft-preview-background', '--ft-preview-background-strength', '--ft-preview-border', '--ft-preview-border-strength', '--ft-preview-border-width']) {
 				el.style.removeProperty(property);
 				titleEl.style.removeProperty(property);
 			}
@@ -183,13 +183,19 @@ export class AppearanceModal extends Modal {
 			if (appearance.text) {
 				el.style.setProperty('--ft-preview-text-light', appearance.text.foregroundLight);
 				el.style.setProperty('--ft-preview-text-dark', appearance.text.foregroundDark);
+				if (appearance.text.strength !== undefined) el.style.setProperty('--ft-preview-text-strength', `${appearance.text.strength}%`);
 			}
 			if (appearance.background) {
 				el.style.setProperty('--ft-preview-background', appearance.background.hex);
 				titleEl.style.setProperty('--ft-preview-background', appearance.background.hex);
+				if (appearance.background.strength !== undefined) {
+					el.style.setProperty('--ft-preview-background-strength', `${appearance.background.strength}%`);
+					titleEl.style.setProperty('--ft-preview-background-strength', `${appearance.background.strength}%`);
+				}
 			}
 			if (hasBorder && appearance.border) {
 				el.style.setProperty('--ft-preview-border', appearance.border.color.hex);
+				if (appearance.border.color.strength !== undefined) el.style.setProperty('--ft-preview-border-strength', `${appearance.border.color.strength}%`);
 				const thicknessMap = appearance.border.style === 'box'
 					? { thin: '1px', medium: '2px', thick: '3px' }
 					: { thin: '2px', medium: '4px', thick: '6px' };
@@ -219,7 +225,7 @@ export class AppearanceModal extends Modal {
 			this.draft[key] = { choice, cascade: this.draft[key]?.cascade ?? this.isFolder };
 			if (rerender) this.render();
 			else this.refreshPreview();
-		});
+		}, key === 'background' ? 12 : 100, true, key === 'text');
 	}
 
 	private renderText(container: HTMLElement): void {
@@ -236,7 +242,8 @@ export class AppearanceModal extends Modal {
 			const dot = summary.createSpan('ft-disclosure-trigger__dot');
 			dot.style.setProperty('--ft-summary-color', color.hex);
 		}
-		summary.createSpan({ text: choice?.kind === 'none' ? 'No color' : color?.hex ?? 'Inherited' });
+		const strength = color?.strength === undefined ? '' : ` · ${color.strength}%`;
+		summary.createSpan({ text: choice?.kind === 'none' ? 'No color' : color ? `${color.hex}${strength}` : 'Inherited' });
 		const chevron = trigger.createSpan('ft-disclosure-trigger__chevron');
 		setIcon(chevron, this.textExpanded ? 'chevron-up' : 'chevron-down');
 		trigger.addEventListener('click', () => {
@@ -308,7 +315,7 @@ export class AppearanceModal extends Modal {
 			}
 			if (rerender) this.render();
 			else this.refreshPreview();
-		}, this.draft.border !== undefined);
+		}, this.rememberedBorder.style === 'box' ? 42 : 55, this.draft.border !== undefined);
 	}
 
 	private renderDescendants(container: HTMLElement): void {
@@ -366,13 +373,17 @@ export class AppearanceModal extends Modal {
 		container: HTMLElement,
 		selected: ColorChoice | undefined,
 		onSelect: (choice: ColorChoice, rerender: boolean) => void,
+		defaultStrength: number,
 		autoOpenCustom = true,
+		includeWhite = false,
 	): void {
 		const template = paletteTemplate(this.toolkit.settings.paletteTemplateId);
-		const paletteLabel = container.createDiv('ft-palette-label');
+		const selectedStrength = selected && selected.kind !== 'none' ? selected.strength : undefined;
+		const controlsHost = container.createDiv('ft-color-controls');
+		const paletteLabel = controlsHost.createDiv('ft-palette-label');
 		paletteLabel.createSpan({ text: template.label });
 		paletteLabel.createSpan({ text: 'Palette', cls: 'ft-palette-label__meta' });
-		const grid = container.createDiv('ft-swatch-grid');
+		const grid = controlsHost.createDiv('ft-swatch-grid');
 		grid.setAttribute('role', 'group');
 		grid.setAttribute('aria-label', `${template.label} colors`);
 		for (const [slot, hex] of template.colors.entries()) {
@@ -382,11 +393,19 @@ export class AppearanceModal extends Modal {
 				attr: { type: 'button', 'aria-label': `${hex}, color ${slot + 1}`, 'aria-pressed': String(isSelected), title: hex },
 			});
 			button.style.setProperty('--ft-swatch', hex);
-			button.addEventListener('click', () => onSelect({ kind: 'preset', slot }, true));
+			button.addEventListener('click', () => onSelect({ kind: 'preset', slot, ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) }, true));
+		}
+		if (includeWhite) {
+			const isSelected = selected?.kind === 'custom' && selected.hex === '#FFFFFF';
+			const white = grid.createEl('button', {
+				cls: `ft-swatch ft-swatch--white${isSelected ? ' is-selected' : ''}`,
+				attr: { type: 'button', 'aria-label': 'White', 'aria-pressed': String(isSelected), title: 'White' },
+			});
+			white.addEventListener('click', () => onSelect({ kind: 'custom', hex: '#FFFFFF', ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) }, true));
 		}
 
-		const custom = container.createDiv('ft-custom-control');
-		const customOpen = selected?.kind === 'custom' && autoOpenCustom;
+		const custom = controlsHost.createDiv('ft-custom-control');
+		const customOpen = selected?.kind === 'custom' && selected.hex !== '#FFFFFF' && autoOpenCustom;
 		const trigger = custom.createEl('button', {
 			cls: `ft-custom-trigger${selected?.kind === 'custom' ? ' is-selected' : ''}`,
 			attr: { type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': String(customOpen) },
@@ -415,23 +434,54 @@ export class AppearanceModal extends Modal {
 		const text = field.createEl('input', { attr: { type: 'text', 'aria-label': 'Custom hex color', autocomplete: 'off', spellcheck: 'false' } });
 		text.value = color.value.toUpperCase();
 		const error = field.createDiv({ text: 'Enter a 3- or 6-digit hex color.', cls: 'ft-field-error', attr: { role: 'status' } });
+		let currentHex = color.value.toUpperCase();
+		const selectCustom = (): void => {
+			const choice: ColorChoice = { kind: 'custom', hex: currentHex, ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) };
+			trigger.addClass('is-selected');
+			triggerLabel.setText(`Custom ${currentHex}`);
+			triggerDot.style.setProperty('--ft-custom-color', currentHex);
+			for (const swatch of grid.querySelectorAll<HTMLElement>('.ft-swatch.is-selected')) {
+				swatch.removeClass('is-selected');
+				swatch.setAttribute('aria-pressed', 'false');
+			}
+			onSelect(choice, selected === undefined || selected.kind === 'none');
+		};
 		const commit = (value: string): void => {
 			const hex = normalizeHex(value);
 			text.toggleAttribute('aria-invalid', !hex);
 			error.classList.toggle('is-visible', !hex);
 			if (!hex) return;
 			color.value = hex;
-			trigger.addClass('is-selected');
-			triggerLabel.setText(`Custom ${hex}`);
-			triggerDot.style.setProperty('--ft-custom-color', hex);
-			for (const swatch of grid.querySelectorAll<HTMLElement>('.ft-swatch.is-selected')) {
-				swatch.removeClass('is-selected');
-				swatch.setAttribute('aria-pressed', 'false');
-			}
-			onSelect({ kind: 'custom', hex }, false);
+			currentHex = hex;
+			selectCustom();
 		};
 		color.addEventListener('input', () => { text.value = color.value.toUpperCase(); commit(color.value); });
 		text.addEventListener('input', () => commit(text.value));
+		if (selected && selected.kind !== 'none') {
+			const strengthControl = controlsHost.createDiv('ft-color-strength');
+			const strengthLabel = strengthControl.createEl('label', { text: 'Color strength' });
+			const currentStrength = selected.strength ?? defaultStrength;
+			const strengthActions = strengthLabel.createSpan('ft-color-strength__actions');
+			const reset = strengthActions.createEl('button', {
+				cls: 'clickable-icon ft-color-strength__reset',
+				attr: { type: 'button', 'aria-label': 'Reset color strength to default', title: 'Reset color strength to default' },
+			});
+			setIcon(reset, 'rotate-ccw');
+			reset.disabled = selected.strength === undefined;
+			const strengthValue = strengthActions.createSpan({ text: `${currentStrength}%`, cls: 'ft-color-strength__value' });
+			const strength = strengthControl.createEl('input', {
+				attr: { type: 'range', min: '0', max: '100', step: '1', value: String(currentStrength), 'aria-label': 'Color strength' },
+			});
+			strength.addEventListener('input', () => {
+				const value = Number(strength.value);
+				strengthValue.setText(`${value}%`);
+				onSelect({ ...selected, strength: value }, false);
+			});
+			reset.addEventListener('click', () => {
+				const { strength: _strength, ...defaultChoice } = selected;
+				onSelect(defaultChoice, true);
+			});
+		}
 		const setOpen = (open: boolean, restoreFocus = false): void => {
 			popover.hidden = !open;
 			trigger.setAttribute('aria-expanded', String(open));

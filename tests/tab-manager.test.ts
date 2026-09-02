@@ -58,16 +58,16 @@ function restoreDomWriteSpies(spies: ReturnType<typeof watchDomWrites>): void {
 
 describe('open note tabs', () => {
 	it('resolves text and background as independent channels', () => {
-		expect(tabAccents('A/note.md', settings('background'))).toEqual({ text: '#16A085', background: null });
-		expect(tabAccents('B/note.md', settings('background'))).toEqual({ text: null, background: '#3498DB' });
-		expect(tabAccents('C/note.md', settings('background'))).toEqual({ text: '#8E44AD', background: '#2C3E50' });
-		expect(tabAccents('Other.md', settings('background'))).toEqual({ text: null, background: null });
+		expect(tabAccents('A/note.md', settings('background'))).toEqual({ text: '#12856E', textDark: '#16A085', textStrength: null, background: null, backgroundStrength: null });
+		expect(tabAccents('B/note.md', settings('background'))).toEqual({ text: null, textDark: null, textStrength: null, background: '#3498DB', backgroundStrength: null });
+		expect(tabAccents('C/note.md', settings('background'))).toEqual({ text: '#8E44AD', textDark: '#AA73C2', textStrength: null, background: '#2C3E50', backgroundStrength: null });
+		expect(tabAccents('Other.md', settings('background'))).toEqual({ text: null, textDark: null, textStrength: null, background: null, backgroundStrength: null });
 	});
 
 	it('retains cascaded tab backgrounds inside shaded direct subfolders', () => {
 		const current = settings('background');
 		current.appearanceRules.B.descendants = { enabled: true, style: 'box', thickness: 'thin', shading: true };
-		expect(tabAccents('B/Subfolder/note.md', current)).toEqual({ text: null, background: '#3498DB' });
+		expect(tabAccents('B/Subfolder/note.md', current)).toEqual({ text: null, textDark: null, textStrength: null, background: '#3498DB', backgroundStrength: null });
 	});
 
 	it('maps leaves to their tab headers and cleans up', () => {
@@ -102,7 +102,8 @@ describe('open note tabs', () => {
 		manager.reconcile();
 		expect(firstHeader.classList.contains('ft-tab-has-text')).toBe(true);
 		expect(firstHeader.classList.contains('ft-tab-border')).toBe(false);
-		expect(firstHeader.style.getPropertyValue('--ft-tab-text')).toBe('#16A085');
+		expect(firstHeader.style.getPropertyValue('--ft-tab-text')).toBe('#12856E');
+		expect(firstHeader.style.getPropertyValue('--ft-tab-text-dark')).toBe('#16A085');
 		expect(secondHeader.classList.contains('ft-tab-has-text')).toBe(false);
 		expect(secondHeader.classList.contains('ft-tab-border')).toBe(true);
 		expect(secondHeader.style.getPropertyValue('--ft-tab-border')).toBe('#3498DB');

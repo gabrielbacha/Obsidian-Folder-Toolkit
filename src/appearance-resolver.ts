@@ -1,4 +1,4 @@
-import { resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
+import { resolveAutomaticText, resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
 import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings } from './types';
 
@@ -82,9 +82,12 @@ export function resolveAppearance(path: string, context: ResolverContext): Resol
 	const resolvedBorder = border ? resolveChoice(border.color, context.settings.paletteTemplateId) : null;
 	const resolvedBackground = background ? resolveChoice(background.choice, context.settings.paletteTemplateId) : null;
 	const resolvedText = text ? resolveChoice(text.choice, context.settings.paletteTemplateId) : null;
+	const automaticText = !text && resolvedBackground?.strength !== undefined && resolvedBackground.strength > 12
+		? resolveAutomaticText(resolvedBackground)
+		: null;
 	
 	return {
-		text: resolvedText ? resolveTextAgainstBackground(resolvedText, resolvedBackground) : null,
+		text: resolvedText ? resolveTextAgainstBackground(resolvedText, resolvedBackground) : automaticText,
 		background: resolvedBackground,
 		border: border && resolvedBorder ? { style: border.style, color: resolvedBorder, thickness: border.thickness, shading: border.shading } : null,
 	};
