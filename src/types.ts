@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -40,11 +40,23 @@ export interface AppearanceRule {
 	descendants?: DescendantRule;
 }
 
+export type ConditionalTarget = 'folder' | 'file' | 'both';
+export type ConditionalMatch = 'equals' | 'startsWith' | 'endsWith' | 'contains';
+
+export interface ConditionalFormatRule {
+	id: string;
+	target: ConditionalTarget;
+	match: ConditionalMatch;
+	pattern: string;
+	background: Exclude<ColorChoice, { kind: 'none' }>;
+}
+
 export interface FolderToolkitSettings {
 	schemaVersion: number;
 	paletteTemplateId: PaletteTemplateId;
 	tabStyle: 'off' | 'background' | 'border';
 	appearanceRules: Record<string, AppearanceRule>;
+	conditionalFormats: ConditionalFormatRule[];
 	hiddenPaths: string[];
 	showHiddenItems: boolean;
 }
@@ -54,6 +66,7 @@ export const DEFAULT_SETTINGS: FolderToolkitSettings = {
 	paletteTemplateId: 'default',
 	tabStyle: 'off',
 	appearanceRules: {},
+	conditionalFormats: [],
 	hiddenPaths: [],
 	showHiddenItems: false,
 };

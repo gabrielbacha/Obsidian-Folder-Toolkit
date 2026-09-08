@@ -43,4 +43,27 @@ describe('settings normalization', () => {
 		expect(normalizeSettings({ tabStyle: 'border' }).tabStyle).toBe('border');
 		expect(normalizeSettings({ tabStyle: 'rainbow' }).tabStyle).toBe('off');
 	});
+
+	it('normalizes conditional formatting rules and removes malformed entries', () => {
+		const settings = normalizeSettings({
+			conditionalFormats: [
+				{
+					id: 'system-folders',
+					target: 'folder',
+					match: 'equals',
+					pattern: '__system',
+					background: { kind: 'custom', hex: 'a8adb5', strength: 120 },
+				},
+				{ id: '', target: 'file', match: 'startsWith', pattern: '__archive', background: { kind: 'none' } },
+			],
+		});
+		expect(settings.conditionalFormats).toEqual([{
+			id: 'system-folders',
+			target: 'folder',
+			match: 'equals',
+			pattern: '__system',
+			background: { kind: 'custom', hex: '#A8ADB5', strength: 100 },
+		}]);
+	});
+
 });

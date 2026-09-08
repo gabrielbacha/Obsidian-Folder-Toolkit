@@ -11,6 +11,7 @@ function settings(): FolderToolkitSettings {
 		appearanceRules: {
 			A: { text: { choice: { kind: 'preset', slot: 0 }, cascade: true } },
 		},
+		conditionalFormats: [],
 		hiddenPaths: [],
 		showHiddenItems: false,
 	};

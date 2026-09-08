@@ -75,6 +75,7 @@ describe('ExplorerManager', () => {
 					border: { style: 'box', color: { kind: 'preset', slot: 1 } },
 				},
 			},
+			conditionalFormats: [],
 			hiddenPaths: ['A/B/note.md'],
 			showHiddenItems: false,
 		};

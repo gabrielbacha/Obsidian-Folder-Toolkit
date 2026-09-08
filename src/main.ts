@@ -5,7 +5,7 @@ import { normalizePaletteTemplateId } from './colors';
 import { findNearestContainingPath, isSameOrDescendant, replacePathRoot } from './path-utils';
 import { normalizeSettings } from './settings';
 import { TabManager } from './tab-manager';
-import type { AppearanceRule, FolderToolkitSettings } from './types';
+import type { AppearanceRule, ConditionalFormatRule, FolderToolkitSettings } from './types';
 import { AppearanceModal } from './ui/appearance-modal';
 import { FolderToolkitSettingTab } from './ui/settings-tab';
 
@@ -102,6 +102,29 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	async setTabStyle(value: string): Promise<void> {
 		this.settings.tabStyle = value === 'background' || value === 'border' ? value : 'off';
+		await this.persist();
+	}
+
+	async addConditionalFormat(): Promise<void> {
+		this.settings.conditionalFormats.push({
+			id: `conditional-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+			target: 'folder',
+			match: 'equals',
+			pattern: '',
+			background: { kind: 'custom', hex: '#A8ADB5', strength: 12 },
+		});
+		await this.persist();
+	}
+
+	async updateConditionalFormat(id: string, rule: ConditionalFormatRule): Promise<void> {
+		const index = this.settings.conditionalFormats.findIndex((candidate) => candidate.id === id);
+		if (index < 0) return;
+		this.settings.conditionalFormats[index] = structuredClone(rule);
+		await this.persist();
+	}
+
+	async removeConditionalFormat(id: string): Promise<void> {
+		this.settings.conditionalFormats = this.settings.conditionalFormats.filter((rule) => rule.id !== id);
 		await this.persist();
 	}
 

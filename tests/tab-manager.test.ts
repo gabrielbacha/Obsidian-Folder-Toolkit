@@ -16,6 +16,7 @@ function settings(mode: 'off' | 'background' | 'border'): FolderToolkitSettings 
 				background: { choice: { kind: 'preset', slot: 3 }, cascade: true },
 			},
 		},
+		conditionalFormats: [],
 		hiddenPaths: [],
 		showHiddenItems: false,
 	};

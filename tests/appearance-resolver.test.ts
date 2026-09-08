@@ -6,6 +6,7 @@ const settings: FolderToolkitSettings = {
 	schemaVersion: 1,
 	paletteTemplateId: 'default',
 	tabStyle: 'off',
+	conditionalFormats: [],
 	hiddenPaths: [],
 	showHiddenItems: false,
 	appearanceRules: {
@@ -104,4 +105,41 @@ describe('appearance resolution', () => {
 		const deepSub = resolveAppearance('Root/Sub1/NestedSub', { settings: settingsWithDescendants });
 		expect(deepSub.border).toBeNull();
 	});
+
+	it('matches reusable name rules by item type and lets exact paths override them', () => {
+		const conditionalSettings: FolderToolkitSettings = {
+			...settings,
+			conditionalFormats: [
+				{
+					id: 'system-folders',
+					target: 'folder',
+					match: 'equals',
+					pattern: '__system',
+					background: { kind: 'custom', hex: '#A8ADB5', strength: 12 },
+				},
+				{
+					id: 'archive-files',
+					target: 'file',
+					match: 'startsWith',
+					pattern: '__archive',
+					background: { kind: 'custom', hex: '#B0B0B0', strength: 16 },
+				},
+			],
+		};
+
+		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: true }).background?.hex).toBe('#A8ADB5');
+		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: false }).background).toBeNull();
+		expect(resolveAppearance('Root/__archive-2026.zip', { settings: conditionalSettings, isFolder: false }).background?.hex).toBe('#B0B0B0');
+		expect(resolveAppearance('Root/__Archive-old.zip', { settings: conditionalSettings, isFolder: false }).background?.hex).toBe('#B0B0B0');
+
+		const exactOverride: FolderToolkitSettings = {
+			...conditionalSettings,
+			appearanceRules: {
+				...conditionalSettings.appearanceRules,
+				'Root/__archive-2026.zip': { background: { choice: { kind: 'custom', hex: '#FF0000' }, cascade: false } },
+			},
+		};
+		expect(resolveAppearance('Root/__archive-2026.zip', { settings: exactOverride, isFolder: false }).background?.hex).toBe('#FF0000');
+	});
+
 });

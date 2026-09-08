@@ -17,6 +17,7 @@ describe('workspace refresh events', () => {
 				Blue: { background: { choice: { kind: 'preset', slot: 1 }, cascade: true } },
 				Red: { background: { choice: { kind: 'preset', slot: 7 }, cascade: true } },
 			},
+			conditionalFormats: [],
 			hiddenPaths: [],
 			showHiddenItems: false,
 		};

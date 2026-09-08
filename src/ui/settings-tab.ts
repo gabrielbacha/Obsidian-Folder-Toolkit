@@ -1,7 +1,7 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, ColorChoice } from '../types';
+import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
@@ -26,6 +26,12 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				desc: 'Color open-note titles and optionally their background or border.',
 				aliases: ['tab background', 'tab border', 'open notes'],
 				render: (setting) => this.renderTabStyle(setting),
+			},
+			{
+				name: 'Conditional formatting',
+				desc: 'Shade files and folders whose names match reusable rules.',
+				aliases: ['name rules', 'starts with', 'folder shading', 'file shading'],
+				render: (setting) => this.renderConditionalFormats(setting),
 			},
 			{
 				name: 'Show hidden items',
@@ -141,6 +147,117 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			const color = strip.createSpan('ft-palette-strip__color');
 			color.style.setProperty('--ft-swatch', hex);
 		}
+	}
+
+	private renderConditionalFormats(setting: Setting): () => void {
+		setting.setName('Conditional formatting').setHeading();
+		setting.settingEl.addClass('ft-conditional-setting');
+		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-conditional-formats');
+		wrapper.createDiv({ text: 'Rules match the item name, not its full path. Later matching rules win.', cls: 'ft-card-hint' });
+		const add = wrapper.createEl('button', {
+			cls: 'ft-conditional-add',
+			attr: { type: 'button', 'aria-label': 'Add conditional formatting rule' },
+		});
+		setIcon(add, 'plus');
+		add.createSpan({ text: 'Add rule' });
+		add.addEventListener('click', () => {
+			void this.toolkit.addConditionalFormat().then(() => this.update());
+		});
+
+		if (this.toolkit.settings.conditionalFormats.length === 0) {
+			wrapper.createDiv({ text: 'No conditional formatting rules yet.', cls: 'ft-empty-state' });
+		}
+
+		for (const rule of this.toolkit.settings.conditionalFormats) {
+			const card = wrapper.createDiv('ft-conditional-card');
+			const save = (): void => {
+				void this.toolkit.updateConditionalFormat(rule.id, rule);
+			};
+
+			const targetLabel = card.createEl('label', { text: 'Apply to' });
+			const target = card.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
+			for (const [value, label] of [
+				['folder', 'Folders'],
+				['file', 'Files'],
+				['both', 'Files and folders'],
+			] as const) target.createEl('option', { text: label, value });
+			target.value = rule.target;
+			targetLabel.append(target);
+			target.addEventListener('change', () => {
+				rule.target = target.value as ConditionalTarget;
+				save();
+			});
+
+			const matchLabel = card.createEl('label', { text: 'Name' });
+			const match = card.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
+			for (const [value, label] of [
+				['equals', 'Is exactly'],
+				['startsWith', 'Starts with'],
+				['endsWith', 'Ends with'],
+				['contains', 'Contains'],
+			] as const) match.createEl('option', { text: label, value });
+			match.value = rule.match;
+			matchLabel.append(match);
+			match.addEventListener('change', () => {
+				rule.match = match.value as ConditionalMatch;
+				save();
+			});
+
+			const patternLabel = card.createEl('label', { text: 'Pattern' });
+			const pattern = card.createEl('input', {
+				type: 'text',
+				value: rule.pattern,
+				placeholder: '__system',
+				attr: { 'aria-label': 'Name pattern', spellcheck: 'false' },
+			});
+			patternLabel.append(pattern);
+			pattern.addEventListener('change', () => { rule.pattern = pattern.value; save(); });
+
+			const colorLabel = card.createEl('label', { text: 'Shade color' });
+			const resolved = resolveChoice(rule.background, this.toolkit.settings.paletteTemplateId);
+			const color = card.createEl('input', {
+				type: 'color',
+				value: resolved?.hex ?? '#A8ADB5',
+				attr: { 'aria-label': 'Shade color' },
+			});
+			colorLabel.append(color);
+			color.addEventListener('change', () => {
+				rule.background = { kind: 'custom', hex: color.value, strength: rule.background.strength };
+				save();
+			});
+
+			const strengthLabel = card.createEl('label', { text: 'Strength' });
+			const strength = card.createEl('input', {
+				type: 'range',
+				value: String(rule.background.strength ?? 12),
+				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Shade strength' },
+			});
+			strengthLabel.append(strength);
+			const strengthValue = strengthLabel.createSpan('ft-conditional-strength');
+			const updateStrength = (): void => {
+				strengthValue.setText(`${strength.value}%`);
+			};
+			updateStrength();
+			strength.addEventListener('input', updateStrength);
+			strength.addEventListener('change', () => {
+				rule.background = { ...rule.background, strength: Number(strength.value) };
+				save();
+			});
+
+			const remove = card.createEl('button', {
+				cls: 'clickable-icon ft-conditional-remove',
+				attr: { type: 'button', 'aria-label': `Remove rule for ${rule.pattern || 'unnamed pattern'}` },
+			});
+			setIcon(remove, 'trash-2');
+			remove.addEventListener('click', () => {
+				void this.toolkit.removeConditionalFormat(rule.id).then(() => this.update());
+			});
+		}
+
+		return () => {
+			wrapper.remove();
+			setting.settingEl.removeClass('ft-conditional-setting');
+		};
 	}
 
 	private renderHiddenToggle(setting: Setting): void {

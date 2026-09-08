@@ -5,6 +5,7 @@ import {
 	type AppearanceRule,
 	type BorderRule,
 	type ColorChoice,
+	type ConditionalFormatRule,
 	type DescendantRule,
 	type EffectRule,
 	type FolderToolkitSettings,
@@ -80,6 +81,23 @@ function normalizeAppearance(value: unknown, paletteLength: number): AppearanceR
 	};
 }
 
+function normalizeConditionalFormat(value: unknown, paletteLength: number): ConditionalFormatRule | null {
+	if (!isRecord(value) || typeof value.id !== 'string' || !value.id || typeof value.pattern !== 'string') return null;
+	const target = value.target === 'folder' || value.target === 'file' || value.target === 'both' ? value.target : null;
+	const match = value.match === 'equals' || value.match === 'startsWith' || value.match === 'endsWith' || value.match === 'contains'
+		? value.match
+		: null;
+	const background = normalizeChoice(value.background, paletteLength);
+	if (!target || !match || !background || background.kind === 'none') return null;
+	return {
+		id: value.id,
+		target,
+		match,
+		pattern: value.pattern,
+		background,
+	};
+}
+
 export function normalizeSettings(raw: unknown): FolderToolkitSettings {
 	if (!isRecord(raw)) return structuredClone(DEFAULT_SETTINGS);
 	const paletteTemplateId = normalizePaletteTemplateId(raw.paletteTemplateId);
@@ -95,11 +113,17 @@ export function normalizeSettings(raw: unknown): FolderToolkitSettings {
 	const hiddenPaths = Array.isArray(raw.hiddenPaths)
 		? [...new Set(raw.hiddenPaths.filter((path): path is string => typeof path === 'string' && path.length > 0))]
 		: [];
+	const conditionalFormats = Array.isArray(raw.conditionalFormats)
+		? raw.conditionalFormats
+			.map((value) => normalizeConditionalFormat(value, paletteLength))
+			.filter((value): value is ConditionalFormatRule => value !== null)
+		: [];
 	return {
 		schemaVersion: SCHEMA_VERSION,
 		paletteTemplateId,
 		tabStyle: raw.tabStyle === 'background' || raw.tabStyle === 'border' ? raw.tabStyle : 'off',
 		appearanceRules,
+		conditionalFormats,
 		hiddenPaths,
 		showHiddenItems: raw.showHiddenItems === true,
 	};

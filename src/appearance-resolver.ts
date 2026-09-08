@@ -1,5 +1,6 @@
 import { resolveAutomaticText, resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
+import { conditionalBackgroundFor } from './conditional-format';
 import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings } from './types';
 
 export function hasDirectColor(rule: AppearanceRule | undefined): boolean {
@@ -24,6 +25,10 @@ function effectiveEffect(
 	const rules = context.settings.appearanceRules;
 	const direct = rules[path]?.[key];
 	if (direct) return direct;
+	if (key === 'background') {
+		const conditional = conditionalBackgroundFor(path, isFolderPath(path, context), context.settings);
+		if (conditional) return conditional;
+	}
 	for (const parent of parentPaths(path)) {
 		const candidate = rules[parent]?.[key];
 		if (candidate?.cascade) return candidate;

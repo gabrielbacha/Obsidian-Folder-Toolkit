@@ -9,6 +9,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 ## Features
 
 - Independent text and background colors for folders and notes
+- Conditional background shading by file or folder name, with exact, prefix, suffix, and contains matching
 - Per-effect folder cascading with explicit inheritance blockers
 - Rounded-box or vertical-rail borders around folder subtrees, with optional shaded interiors
 - Alternating active-palette borders for direct subfolders
@@ -31,6 +32,8 @@ Right-click or long-press a file or folder and use the actions in Obsidian's plu
 Use **Folder Toolkit: Toggle hidden items** to reveal hidden paths. The settings tab contains the palette selector and a searchable manager for all appearance and hidden-path rules.
 
 Set **Open note tabs** to **Colored background** or **Colored border** to carry each open note's effective cascaded colors into its workspace tab. Text rules color the tab title, while background rules independently color the tab surface or border.
+
+Use **Conditional formatting** in settings to shade items by name anywhere in the vault. Choose files, folders, or both; match an exact name or a name that starts with, ends with, or contains a pattern; then select the shade color and strength. Matching is case-insensitive. Exact path color rules take priority, and the last matching conditional rule wins.
 
 When a file or folder is renamed or moved, saved rules follow the path and open tabs immediately resolve their appearance from the new folder hierarchy.
 
