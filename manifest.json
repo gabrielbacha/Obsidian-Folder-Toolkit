@@ -1,7 +1,7 @@
 {
 	"id": "folder-toolkit",
 	"name": "Folder Toolkit",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"minAppVersion": "1.13.0",
 	"description": "Color, organize, hide, and temporarily focus folders in the file explorer.",
 	"author": "Gabriel Bacha",

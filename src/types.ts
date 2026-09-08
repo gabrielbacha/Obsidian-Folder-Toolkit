@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -43,13 +43,42 @@ export interface AppearanceRule {
 export type ConditionalTarget = 'folder' | 'file' | 'both';
 export type ConditionalMatch = 'equals' | 'startsWith' | 'endsWith' | 'contains';
 
+export type ConditionalEffect = 'text' | 'background';
 export interface ConditionalFormatRule {
 	id: string;
 	target: ConditionalTarget;
 	match: ConditionalMatch;
 	pattern: string;
-	background: Exclude<ColorChoice, { kind: 'none' }>;
+	effect: ConditionalEffect;
+	color: Exclude<ColorChoice, { kind: 'none' }>;
 }
+
+export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
+	{
+		id: 'default-system-folders',
+		target: 'folder',
+		match: 'equals',
+		pattern: '__system',
+		effect: 'text',
+		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+	},
+	{
+		id: 'default-archive-files',
+		target: 'file',
+		match: 'startsWith',
+		pattern: '__archive',
+		effect: 'text',
+		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+	},
+	{
+		id: 'default-basefiles-folders',
+		target: 'folder',
+		match: 'endsWith',
+		pattern: '_basefiles',
+		effect: 'text',
+		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+	},
+];
 
 export interface FolderToolkitSettings {
 	schemaVersion: number;
@@ -66,7 +95,7 @@ export const DEFAULT_SETTINGS: FolderToolkitSettings = {
 	paletteTemplateId: 'default',
 	tabStyle: 'off',
 	appearanceRules: {},
-	conditionalFormats: [],
+	conditionalFormats: DEFAULT_CONDITIONAL_FORMATS,
 	hiddenPaths: [],
 	showHiddenItems: false,
 };

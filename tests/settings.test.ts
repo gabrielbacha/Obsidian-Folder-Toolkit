@@ -7,6 +7,21 @@ describe('settings normalization', () => {
 		const settings = normalizeSettings(null);
 		expect(settings).toEqual(DEFAULT_SETTINGS);
 		expect(settings).not.toBe(DEFAULT_SETTINGS);
+		expect(settings.conditionalFormats.map((rule) => rule.pattern)).toEqual(['__system', '__archive', '_basefiles']);
+		expect(settings.conditionalFormats.every((rule) => rule.effect === 'text')).toBe(true);
+		const migrated = normalizeSettings({ schemaVersion: 2, conditionalFormats: [] });
+		expect(migrated.conditionalFormats.map((rule) => rule.pattern))
+			.toEqual(['__system', '__archive', '_basefiles']);
+		const migratedWithBackground = normalizeSettings({
+			schemaVersion: 2,
+			conditionalFormats: [{
+				id: 'existing-system-background', target: 'folder', match: 'equals', pattern: '__system',
+				background: { kind: 'custom', hex: '#CCCCCC' },
+			}],
+		});
+		expect(migratedWithBackground.conditionalFormats
+			.filter((rule) => rule.pattern === '__system')
+			.map((rule) => rule.effect)).toEqual(['text', 'background']);
 	});
 
 	it('normalizes color strength for custom and palette colors', () => {
@@ -46,6 +61,7 @@ describe('settings normalization', () => {
 
 	it('normalizes conditional formatting rules and removes malformed entries', () => {
 		const settings = normalizeSettings({
+			schemaVersion: 3,
 			conditionalFormats: [
 				{
 					id: 'system-folders',
@@ -62,7 +78,8 @@ describe('settings normalization', () => {
 			target: 'folder',
 			match: 'equals',
 			pattern: '__system',
-			background: { kind: 'custom', hex: '#A8ADB5', strength: 100 },
+			effect: 'background',
+			color: { kind: 'custom', hex: '#A8ADB5', strength: 100 },
 		}]);
 	});
 

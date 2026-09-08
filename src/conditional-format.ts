@@ -18,14 +18,15 @@ export function matchesConditionalFormat(path: string, isFolder: boolean, rule: 
 	}
 }
 
-export function conditionalBackgroundFor(
+export function conditionalEffectFor(
 	path: string,
 	isFolder: boolean,
+	effect: 'text' | 'background',
 	settings: FolderToolkitSettings,
 ): EffectRule | undefined {
 	let matched: ConditionalFormatRule | undefined;
 	for (const rule of settings.conditionalFormats) {
-		if (matchesConditionalFormat(path, isFolder, rule)) matched = rule;
+		if (rule.effect === effect && matchesConditionalFormat(path, isFolder, rule)) matched = rule;
 	}
-	return matched ? { choice: matched.background, cascade: false } : undefined;
+	return matched ? { choice: matched.color, cascade: false } : undefined;
 }

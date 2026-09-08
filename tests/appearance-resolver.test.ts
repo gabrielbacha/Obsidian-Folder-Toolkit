@@ -115,22 +115,34 @@ describe('appearance resolution', () => {
 					target: 'folder',
 					match: 'equals',
 					pattern: '__system',
-					background: { kind: 'custom', hex: '#A8ADB5', strength: 12 },
+					effect: 'text',
+					color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
 				},
 				{
 					id: 'archive-files',
 					target: 'file',
 					match: 'startsWith',
 					pattern: '__archive',
-					background: { kind: 'custom', hex: '#B0B0B0', strength: 16 },
+					effect: 'background',
+					color: { kind: 'custom', hex: '#B0B0B0', strength: 16 },
+				},
+				{
+					id: 'basefiles-folders',
+					target: 'folder',
+					match: 'endsWith',
+					pattern: '_basefiles',
+					effect: 'text',
+					color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
 				},
 			],
 		};
 
-		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: true }).background?.hex).toBe('#A8ADB5');
-		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: false }).background).toBeNull();
+		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: true }).text?.hex).toBe('#A8ADB5');
+		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: true }).background).toBeNull();
+		expect(resolveAppearance('Root/__system', { settings: conditionalSettings, isFolder: false }).text).toBeNull();
 		expect(resolveAppearance('Root/__archive-2026.zip', { settings: conditionalSettings, isFolder: false }).background?.hex).toBe('#B0B0B0');
 		expect(resolveAppearance('Root/__Archive-old.zip', { settings: conditionalSettings, isFolder: false }).background?.hex).toBe('#B0B0B0');
+		expect(resolveAppearance('Root/project_basefiles', { settings: conditionalSettings, isFolder: true }).text?.hex).toBe('#A8ADB5');
 
 		const exactOverride: FolderToolkitSettings = {
 			...conditionalSettings,

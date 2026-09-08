@@ -1,6 +1,6 @@
 import type { App } from 'obsidian';
 import { hasDirectColor, resolveAppearance } from './appearance-resolver';
-import { conditionalBackgroundFor } from './conditional-format';
+import { conditionalEffectFor } from './conditional-format';
 import { syncClass, syncStyle } from './dom-sync';
 import { focusRelation, hiddenBy } from './visibility';
 import type { FolderToolkitSettings } from './types';
@@ -118,7 +118,7 @@ export class ExplorerManager {
 		const hasText = appearance.text !== null;
 		const hasBackground = appearance.background !== null;
 		const directBackground = settings.appearanceRules[path]?.background
-			?? conditionalBackgroundFor(path, isFolder, settings);
+			?? conditionalEffectFor(path, isFolder, 'background', settings);
 		const hasDirectBackground = directBackground !== undefined;
 		const directBackgroundHasColor = hasDirectBackground && directBackground.choice.kind !== 'none';
 		const directBackgroundBlocks = hasDirectBackground && directBackground.choice.kind === 'none';

@@ -1,7 +1,7 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget } from '../types';
+import type { AppearanceRule, ColorChoice, ConditionalEffect, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
@@ -29,7 +29,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			},
 			{
 				name: 'Conditional formatting',
-				desc: 'Shade files and folders whose names match reusable rules.',
+				desc: 'Color the font or background of files and folders whose names match reusable rules.',
 				aliases: ['name rules', 'starts with', 'folder shading', 'file shading'],
 				render: (setting) => this.renderConditionalFormats(setting),
 			},
@@ -153,7 +153,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		setting.setName('Conditional formatting').setHeading();
 		setting.settingEl.addClass('ft-conditional-setting');
 		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-conditional-formats');
-		wrapper.createDiv({ text: 'Rules match the item name, not its full path. Later matching rules win.', cls: 'ft-card-hint' });
+		wrapper.createDiv({ text: 'Rules match the item name, not its full path. Later matching rules win per format.', cls: 'ft-card-hint' });
 		const add = wrapper.createEl('button', {
 			cls: 'ft-conditional-add',
 			attr: { type: 'button', 'aria-label': 'Add conditional formatting rule' },
@@ -202,6 +202,18 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				rule.match = match.value as ConditionalMatch;
 				save();
 			});
+			const effectLabel = card.createEl('label', { text: 'Format' });
+			const effect = card.createEl('select', { attr: { 'aria-label': 'Format channel' } });
+			for (const [value, label] of [
+				['text', 'Font'],
+				['background', 'Background'],
+			] as const) effect.createEl('option', { text: label, value });
+			effect.value = rule.effect;
+			effectLabel.append(effect);
+			effect.addEventListener('change', () => {
+				rule.effect = effect.value as ConditionalEffect;
+				save();
+			});
 
 			const patternLabel = card.createEl('label', { text: 'Pattern' });
 			const pattern = card.createEl('input', {
@@ -213,24 +225,24 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			patternLabel.append(pattern);
 			pattern.addEventListener('change', () => { rule.pattern = pattern.value; save(); });
 
-			const colorLabel = card.createEl('label', { text: 'Shade color' });
-			const resolved = resolveChoice(rule.background, this.toolkit.settings.paletteTemplateId);
+			const colorLabel = card.createEl('label', { text: 'Color' });
+			const resolved = resolveChoice(rule.color, this.toolkit.settings.paletteTemplateId);
 			const color = card.createEl('input', {
 				type: 'color',
 				value: resolved?.hex ?? '#A8ADB5',
-				attr: { 'aria-label': 'Shade color' },
+				attr: { 'aria-label': 'Format color' },
 			});
 			colorLabel.append(color);
 			color.addEventListener('change', () => {
-				rule.background = { kind: 'custom', hex: color.value, strength: rule.background.strength };
+				rule.color = { kind: 'custom', hex: color.value, strength: rule.color.strength };
 				save();
 			});
 
 			const strengthLabel = card.createEl('label', { text: 'Strength' });
 			const strength = card.createEl('input', {
 				type: 'range',
-				value: String(rule.background.strength ?? 12),
-				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Shade strength' },
+				value: String(rule.color.strength ?? 65),
+				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Color strength' },
 			});
 			strengthLabel.append(strength);
 			const strengthValue = strengthLabel.createSpan('ft-conditional-strength');
@@ -240,7 +252,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			updateStrength();
 			strength.addEventListener('input', updateStrength);
 			strength.addEventListener('change', () => {
-				rule.background = { ...rule.background, strength: Number(strength.value) };
+				rule.color = { ...rule.color, strength: Number(strength.value) };
 				save();
 			});
 

@@ -1,5 +1,6 @@
 import { normalizeHex, normalizePaletteTemplateId, normalizeStrength, paletteTemplate } from './colors';
 import {
+	DEFAULT_CONDITIONAL_FORMATS,
 	DEFAULT_SETTINGS,
 	SCHEMA_VERSION,
 	type AppearanceRule,
@@ -87,15 +88,31 @@ function normalizeConditionalFormat(value: unknown, paletteLength: number): Cond
 	const match = value.match === 'equals' || value.match === 'startsWith' || value.match === 'endsWith' || value.match === 'contains'
 		? value.match
 		: null;
-	const background = normalizeChoice(value.background, paletteLength);
-	if (!target || !match || !background || background.kind === 'none') return null;
+	const effect = value.effect === 'text' || value.effect === 'background'
+		? value.effect
+		: value.background !== undefined ? 'background' : null;
+	const color = normalizeChoice(value.color ?? value.background, paletteLength);
+	if (!target || !match || !effect || !color || color.kind === 'none') return null;
 	return {
 		id: value.id,
 		target,
 		match,
 		pattern: value.pattern,
-		background,
+		effect,
+		color,
 	};
+}
+
+function addDefaultConditionalFormats(rules: ConditionalFormatRule[]): ConditionalFormatRule[] {
+	const result = [...rules];
+	for (const builtIn of [...DEFAULT_CONDITIONAL_FORMATS].reverse()) {
+		const exists = result.some((rule) => rule.target === builtIn.target
+			&& rule.match === builtIn.match
+			&& rule.effect === builtIn.effect
+			&& rule.pattern.toLocaleLowerCase() === builtIn.pattern.toLocaleLowerCase());
+		if (!exists) result.unshift(structuredClone(builtIn));
+	}
+	return result;
 }
 
 export function normalizeSettings(raw: unknown): FolderToolkitSettings {
@@ -118,12 +135,14 @@ export function normalizeSettings(raw: unknown): FolderToolkitSettings {
 			.map((value) => normalizeConditionalFormat(value, paletteLength))
 			.filter((value): value is ConditionalFormatRule => value !== null)
 		: [];
+	const migratedConditionalFormats = typeof raw.schemaVersion !== 'number' || raw.schemaVersion < 3
+		? addDefaultConditionalFormats(conditionalFormats) : conditionalFormats;
 	return {
 		schemaVersion: SCHEMA_VERSION,
 		paletteTemplateId,
 		tabStyle: raw.tabStyle === 'background' || raw.tabStyle === 'border' ? raw.tabStyle : 'off',
 		appearanceRules,
-		conditionalFormats,
+		conditionalFormats: migratedConditionalFormats,
 		hiddenPaths,
 		showHiddenItems: raw.showHiddenItems === true,
 	};
