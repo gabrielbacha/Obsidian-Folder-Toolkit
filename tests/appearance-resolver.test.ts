@@ -115,7 +115,7 @@ describe('appearance resolution', () => {
 					target: 'folder',
 					match: 'equals',
 					pattern: '__system',
-					effect: 'text',
+					fontEnabled: true,
 					color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
 				},
 				{
@@ -123,7 +123,8 @@ describe('appearance resolution', () => {
 					target: 'file',
 					match: 'startsWith',
 					pattern: '__archive',
-					effect: 'background',
+					fontEnabled: false,
+					backgroundEnabled: true,
 					color: { kind: 'custom', hex: '#B0B0B0', strength: 16 },
 				},
 				{
@@ -131,7 +132,7 @@ describe('appearance resolution', () => {
 					target: 'folder',
 					match: 'endsWith',
 					pattern: '_basefiles',
-					effect: 'text',
+					fontEnabled: true,
 					color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
 				},
 			],
@@ -154,4 +155,111 @@ describe('appearance resolution', () => {
 		expect(resolveAppearance('Root/__archive-2026.zip', { settings: exactOverride, isFolder: false }).background?.hex).toBe('#FF0000');
 	});
 
+	it('preserves 100% white font and allows simultaneous background and font control', () => {
+		const dualSettings: FolderToolkitSettings = {
+			...settings,
+			conditionalFormats: [
+				{
+					id: 'white-font',
+					target: 'file',
+					match: 'startsWith',
+					pattern: '__archive',
+					fontEnabled: true,
+					color: { kind: 'custom', hex: '#FFFFFF', strength: 100 },
+				},
+				{
+					id: 'dark-bg',
+					target: 'file',
+					match: 'startsWith',
+					pattern: '__archive',
+					fontEnabled: false,
+					backgroundEnabled: true,
+					color: { kind: 'custom', hex: '#1E1E1E', strength: 80 },
+				},
+				{
+					id: 'exact-file-without-ext',
+					target: 'file',
+					match: 'equals',
+					pattern: 'special-note',
+					fontEnabled: true,
+					color: { kind: 'custom', hex: '#00FF00', strength: 100 },
+				},
+			],
+		};
+
+		const archiveFile = resolveAppearance('Personal/Digital Presence/__archive_GB_AI_Context.md', {
+			settings: dualSettings,
+			isFolder: false,
+		});
+		expect(archiveFile.text?.hex).toBe('#FFFFFF');
+		expect(archiveFile.text?.foregroundLight).toBe('#FFFFFF');
+		expect(archiveFile.text?.foregroundDark).toBe('#FFFFFF');
+		expect(archiveFile.text?.strength).toBe(100);
+		expect(archiveFile.background?.hex).toBe('#1E1E1E');
+		expect(archiveFile.background?.strength).toBe(80);
+
+		const matchedWithoutExt = resolveAppearance('Docs/special-note.md', {
+			settings: dualSettings,
+			isFolder: false,
+		});
+		expect(matchedWithoutExt.text?.hex).toBe('#00FF00');
+	});
+
+	it('controls both font and background colors from a single rule with effect both', () => {
+		const singleRuleSettings: FolderToolkitSettings = {
+			...settings,
+			conditionalFormats: [
+				{
+					id: 'single-rule-both-colors',
+					target: 'file',
+					match: 'startsWith',
+					pattern: '__archive',
+					fontEnabled: true,
+					backgroundEnabled: true,
+					color: { kind: 'custom', hex: '#FFFFFF', strength: 100 },
+					backgroundColor: { kind: 'custom', hex: '#1E1E1E', strength: 75 },
+				},
+			],
+		};
+
+		const archiveFile = resolveAppearance('Personal/Digital Presence/__archive_GB_AI_Context.md', {
+			settings: singleRuleSettings,
+			isFolder: false,
+		});
+		expect(archiveFile.text?.hex).toBe('#FFFFFF');
+		expect(archiveFile.text?.foregroundLight).toBe('#FFFFFF');
+		expect(archiveFile.text?.foregroundDark).toBe('#FFFFFF');
+		expect(archiveFile.text?.strength).toBe(100);
+		expect(archiveFile.background?.hex).toBe('#1E1E1E');
+		expect(archiveFile.background?.strength).toBe(75);
+	});
+
+	it('resolves bold and strikethrough styles from conditional formatting rules', () => {
+		const styledSettings: FolderToolkitSettings = {
+			...settings,
+			conditionalFormats: [
+				{
+					id: 'bold-and-strike',
+					target: 'file',
+					match: 'startsWith',
+					pattern: '__archive',
+					fontEnabled: false,
+					color: { kind: 'custom', hex: '#FFFFFF', strength: 100 },
+					backgroundEnabled: true,
+					backgroundColor: { kind: 'custom', hex: '#333333', strength: 10 },
+					bold: true,
+					strikethrough: true,
+				},
+			],
+		};
+
+		const res = resolveAppearance('Docs/__archive-draft.md', {
+			settings: styledSettings,
+			isFolder: false,
+		});
+		expect(res.bold).toBe(true);
+		expect(res.strikethrough).toBe(true);
+		expect(res.text).toBeNull();
+		expect(res.background?.hex).toBe('#333333');
+	});
 });

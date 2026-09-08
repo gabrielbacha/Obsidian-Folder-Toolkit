@@ -111,8 +111,12 @@ export default class FolderToolkitPlugin extends Plugin {
 			target: 'folder',
 			match: 'equals',
 			pattern: '',
-			effect: 'text',
-			color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+			fontEnabled: true,
+			color: { kind: 'custom', hex: '#FFFFFF', strength: 100 },
+			backgroundEnabled: false,
+			backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
+			bold: false,
+			strikethrough: false,
 		});
 		await this.persist();
 	}

@@ -1,6 +1,6 @@
 import { resolveAutomaticText, resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
-import { conditionalEffectFor } from './conditional-format';
+import { conditionalEffectFor, conditionalStylesFor } from './conditional-format';
 import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings } from './types';
 
 export function hasDirectColor(rule: AppearanceRule | undefined): boolean {
@@ -15,6 +15,8 @@ export interface ResolvedAppearance {
 	text: ResolvedColor | null;
 	background: ResolvedColor | null;
 	border: { style: 'box' | 'rail'; color: ResolvedColor; thickness?: 'thin' | 'medium' | 'thick'; shading?: boolean } | null;
+	bold?: boolean;
+	strikethrough?: boolean;
 }
 
 function effectiveEffect(
@@ -89,9 +91,13 @@ export function resolveAppearance(path: string, context: ResolverContext): Resol
 		? resolveAutomaticText(resolvedBackground)
 		: null;
 	
+	const styles = conditionalStylesFor(path, isFolderPath(path, context), context.settings);
+
 	return {
 		text: resolvedText ? resolveTextAgainstBackground(resolvedText, resolvedBackground) : automaticText,
 		background: resolvedBackground,
 		border: border && resolvedBorder ? { style: border.style, color: resolvedBorder, thickness: border.thickness, shading: border.shading } : null,
+		bold: styles.bold,
+		strikethrough: styles.strikethrough,
 	};
 }

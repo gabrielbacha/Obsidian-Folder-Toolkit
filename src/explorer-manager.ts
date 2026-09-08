@@ -10,6 +10,7 @@ const MANAGED_CLASSES = [
 	'ft-background-block', 'ft-background-block-cascade', 'ft-border-box', 'ft-border-rail',
 	'ft-border-shaded', 'ft-direct-color-rule',
 	'ft-permanent-hidden', 'ft-focus-hidden', 'ft-focus-ancestor', 'ft-focus-root',
+	'ft-is-bold', 'ft-is-strikethrough',
 ] as const;
 
 const MANAGED_PROPERTIES = [
@@ -158,6 +159,8 @@ export class ExplorerManager {
 		syncClass(row, 'ft-focus-hidden', relation === 'outside');
 		syncClass(row, 'ft-focus-ancestor', relation === 'ancestor');
 		syncClass(row, 'ft-focus-root', relation === 'root');
+		syncClass(row, 'ft-is-bold', appearance.bold === true);
+		syncClass(row, 'ft-is-strikethrough', appearance.strikethrough === true);
 
 		syncStyle(row.style, '--ft-text-light', appearance.text?.foregroundLight ?? null);
 		syncStyle(row.style, '--ft-text-dark', appearance.text?.foregroundDark ?? null);

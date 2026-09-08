@@ -1,11 +1,26 @@
 .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-text > .nav-file-title,
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-text > .nav-folder-title {
-	color: color-mix(in srgb, var(--ft-text-light) var(--ft-text-strength, 100%), var(--text-normal));
+	color: color-mix(in srgb, var(--ft-text-light) var(--ft-text-strength, 100%), var(--nav-item-color, var(--text-normal)));
 }
 
 body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-text > .nav-file-title,
 body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-text > .nav-folder-title {
-	color: color-mix(in srgb, var(--ft-text-dark) var(--ft-text-strength, 100%), var(--text-normal));
+	color: color-mix(in srgb, var(--ft-text-dark) var(--ft-text-strength, 100%), var(--nav-item-color, var(--text-normal)));
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-has-text > .nav-file-title .nav-file-title-content,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-has-text > .nav-folder-title .nav-folder-title-content {
+	color: inherit;
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-is-bold > .nav-file-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-is-bold > .nav-folder-title {
+	font-weight: var(--font-bold, 700);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-is-strikethrough > .nav-file-title .nav-file-title-content,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-is-strikethrough > .nav-folder-title .nav-folder-title-content {
+	text-decoration: line-through;
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title,
@@ -155,11 +170,11 @@ body.ft-show-direct-color-indicators .workspace-leaf-content[data-type="file-exp
 }
 
 .ft-live-preview__row.ft-preview-has-text {
-	color: color-mix(in srgb, var(--ft-preview-text-light) var(--ft-preview-text-strength, 100%), var(--text-normal));
+	color: color-mix(in srgb, var(--ft-preview-text-light) var(--ft-preview-text-strength, 100%), var(--nav-item-color, var(--text-normal)));
 }
 
 body.theme-dark .ft-live-preview__row.ft-preview-has-text {
-	color: color-mix(in srgb, var(--ft-preview-text-dark) var(--ft-preview-text-strength, 100%), var(--text-normal));
+	color: color-mix(in srgb, var(--ft-preview-text-dark) var(--ft-preview-text-strength, 100%), var(--nav-item-color, var(--text-normal)));
 }
 
 .ft-live-preview__row.ft-preview-has-background {
@@ -801,46 +816,153 @@ button.ft-conditional-add {
 }
 
 .ft-conditional-card {
-	display: grid;
-	grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
-	gap: var(--size-4-2);
-	align-items: end;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
 	padding: var(--size-4-3);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 }
 
-.ft-conditional-card label {
+.ft-conditional-meta-row {
+	display: grid;
+	grid-template-columns: minmax(100px, 1fr) minmax(110px, 1fr) minmax(170px, 1.5fr) auto;
+	gap: var(--size-4-2);
+	align-items: end;
+}
+
+.ft-conditional-meta-row label {
 	display: grid;
 	gap: var(--size-4-1);
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 }
 
-.ft-conditional-card select,
-.ft-conditional-card input[type="text"] {
+.ft-conditional-meta-row select,
+.ft-conditional-meta-row input[type="text"] {
 	width: 100%;
 	margin: 0;
 }
 
-.ft-conditional-card input[type="color"] {
-	width: 100%;
-	height: 32px;
+.ft-conditional-controls-row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: var(--size-4-3);
+	padding-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.ft-conditional-channel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.ft-conditional-channel-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.ft-conditional-channel-header label {
+	cursor: pointer;
+}
+
+.ft-conditional-channel-title {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-medium);
+}
+
+.ft-conditional-channel-inputs {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	transition: opacity 0.15s ease;
+}
+
+.ft-conditional-channel-inputs.is-disabled {
+	opacity: 0.35;
+	pointer-events: none;
+}
+
+.ft-conditional-channel-inputs input[type="color"] {
+	width: 44px;
+	height: 30px;
+	flex-shrink: 0;
 	margin: 0;
 	padding: 2px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
 }
 
-.ft-conditional-card input[type="range"] {
-	grid-column: auto;
+.ft-conditional-type-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.ft-conditional-type-buttons {
+	display: flex;
+	gap: var(--size-4-2);
+	align-items: center;
+	height: 30px;
+}
+
+.ft-style-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 30px;
+	border-radius: var(--radius-s);
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	cursor: pointer;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	padding: 0;
+	transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.ft-style-toggle:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.ft-style-toggle.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent, #ffffff);
+	border-color: var(--interactive-accent);
+}
+
+.ft-conditional-slider-wrap {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	flex: 1;
+}
+
+.ft-conditional-slider-wrap input[type="range"] {
+	flex: 1;
 	margin: 0;
 }
 
-.ft-conditional-strength { margin-inline-start: var(--size-4-1); }
+.ft-conditional-strength {
+	min-width: 40px;
+	text-align: end;
+	font-variant-numeric: tabular-nums;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
 
-.ft-conditional-remove { align-self: end; }
+.ft-conditional-remove {
+	align-self: end;
+	margin-bottom: 2px;
+}
 
 @media (max-width: 700px) {
-	.ft-conditional-card {
+	.ft-conditional-meta-row {
 		grid-template-columns: 1fr;
 	}
 

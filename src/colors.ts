@@ -9,6 +9,7 @@ export interface PaletteTemplate {
 
 export interface ResolvedColor {
 	hex: string;
+	isCustom?: boolean;
 	strength?: number;
 	foregroundLight: string;
 	foregroundDark: string;
@@ -52,11 +53,13 @@ export function resolveChoice(choice: ColorChoice, paletteId: PaletteTemplateId)
 		? normalizeHex(choice.hex)
 		: template.colors[Math.min(Math.max(choice.slot, 0), template.colors.length - 1)];
 	if (!hex) return null;
+	const isCustom = choice.kind === 'custom';
 	return {
 		hex,
+		isCustom,
 		...(choice.strength === undefined ? {} : { strength: normalizeStrength(choice.strength) }),
-		foregroundLight: adjustForContrast(hex, '#FFFFFF'),
-		foregroundDark: adjustForContrast(hex, '#1E1E1E'),
+		foregroundLight: isCustom ? hex : adjustForContrast(hex, '#FFFFFF'),
+		foregroundDark: isCustom ? hex : adjustForContrast(hex, '#1E1E1E'),
 	};
 }
 
@@ -70,9 +73,10 @@ export function resolveTextAgainstBackground(
 	text: ResolvedColor,
 	background: ResolvedColor | null,
 ): ResolvedColor {
-	const backgroundAmount = (background?.strength ?? 12) / 100;
-	const lightSurface = background ? mixHex('#FFFFFF', background.hex, backgroundAmount) : '#FFFFFF';
-	const darkSurface = background ? mixHex('#1E1E1E', background.hex, backgroundAmount) : '#1E1E1E';
+	if (text.isCustom || !background) return text;
+	const backgroundAmount = (background.strength ?? 12) / 100;
+	const lightSurface = mixHex('#FFFFFF', background.hex, backgroundAmount);
+	const darkSurface = mixHex('#1E1E1E', background.hex, backgroundAmount);
 	return {
 		...text,
 		foregroundLight: adjustForContrast(text.hex, lightSurface),

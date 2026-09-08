@@ -1,7 +1,8 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
+import { isBackgroundEnabled, isFontEnabled } from '../conditional-format';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, ColorChoice, ConditionalEffect, ConditionalMatch, ConditionalTarget } from '../types';
+import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
@@ -174,8 +175,10 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				void this.toolkit.updateConditionalFormat(rule.id, rule);
 			};
 
-			const targetLabel = card.createEl('label', { text: 'Apply to' });
-			const target = card.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
+			const metaRow = card.createDiv('ft-conditional-meta-row');
+
+			const targetLabel = metaRow.createEl('label', { text: 'Apply to' });
+			const target = metaRow.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
 			for (const [value, label] of [
 				['folder', 'Folders'],
 				['file', 'Files'],
@@ -188,8 +191,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				save();
 			});
 
-			const matchLabel = card.createEl('label', { text: 'Name' });
-			const match = card.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
+			const matchLabel = metaRow.createEl('label', { text: 'Name' });
+			const match = metaRow.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
 			for (const [value, label] of [
 				['equals', 'Is exactly'],
 				['startsWith', 'Starts with'],
@@ -202,21 +205,9 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				rule.match = match.value as ConditionalMatch;
 				save();
 			});
-			const effectLabel = card.createEl('label', { text: 'Format' });
-			const effect = card.createEl('select', { attr: { 'aria-label': 'Format channel' } });
-			for (const [value, label] of [
-				['text', 'Font'],
-				['background', 'Background'],
-			] as const) effect.createEl('option', { text: label, value });
-			effect.value = rule.effect;
-			effectLabel.append(effect);
-			effect.addEventListener('change', () => {
-				rule.effect = effect.value as ConditionalEffect;
-				save();
-			});
 
-			const patternLabel = card.createEl('label', { text: 'Pattern' });
-			const pattern = card.createEl('input', {
+			const patternLabel = metaRow.createEl('label', { text: 'Pattern' });
+			const pattern = metaRow.createEl('input', {
 				type: 'text',
 				value: rule.pattern,
 				placeholder: '__system',
@@ -225,44 +216,162 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			patternLabel.append(pattern);
 			pattern.addEventListener('change', () => { rule.pattern = pattern.value; save(); });
 
-			const colorLabel = card.createEl('label', { text: 'Color' });
-			const resolved = resolveChoice(rule.color, this.toolkit.settings.paletteTemplateId);
-			const color = card.createEl('input', {
-				type: 'color',
-				value: resolved?.hex ?? '#A8ADB5',
-				attr: { 'aria-label': 'Format color' },
-			});
-			colorLabel.append(color);
-			color.addEventListener('change', () => {
-				rule.color = { kind: 'custom', hex: color.value, strength: rule.color.strength };
-				save();
-			});
-
-			const strengthLabel = card.createEl('label', { text: 'Strength' });
-			const strength = card.createEl('input', {
-				type: 'range',
-				value: String(rule.color.strength ?? 65),
-				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Color strength' },
-			});
-			strengthLabel.append(strength);
-			const strengthValue = strengthLabel.createSpan('ft-conditional-strength');
-			const updateStrength = (): void => {
-				strengthValue.setText(`${strength.value}%`);
-			};
-			updateStrength();
-			strength.addEventListener('input', updateStrength);
-			strength.addEventListener('change', () => {
-				rule.color = { ...rule.color, strength: Number(strength.value) };
-				save();
-			});
-
-			const remove = card.createEl('button', {
+			const remove = metaRow.createEl('button', {
 				cls: 'clickable-icon ft-conditional-remove',
 				attr: { type: 'button', 'aria-label': `Remove rule for ${rule.pattern || 'unnamed pattern'}` },
 			});
 			setIcon(remove, 'trash-2');
 			remove.addEventListener('click', () => {
 				void this.toolkit.removeConditionalFormat(rule.id).then(() => this.update());
+			});
+
+			const controlsRow = card.createDiv('ft-conditional-controls-row');
+
+			// Font channel
+			const fontChannel = controlsRow.createDiv('ft-conditional-channel');
+			const fontHeader = fontChannel.createDiv('ft-conditional-channel-header');
+			const fontCheck = fontHeader.createEl('input', {
+				type: 'checkbox',
+				attr: { id: `ft-font-check-${rule.id}` },
+			});
+			fontCheck.checked = isFontEnabled(rule);
+			fontHeader.createEl('label', {
+				text: 'Font',
+				attr: { for: `ft-font-check-${rule.id}` },
+				cls: 'ft-conditional-channel-title',
+			});
+
+			const fontInputs = fontChannel.createDiv('ft-conditional-channel-inputs');
+			const fontResolved = resolveChoice(rule.color, this.toolkit.settings.paletteTemplateId);
+			const fontColor = fontInputs.createEl('input', {
+				type: 'color',
+				value: fontResolved?.hex ?? '#FFFFFF',
+				attr: { 'aria-label': 'Font color' },
+			});
+			fontColor.addEventListener('change', () => {
+				rule.color = { kind: 'custom', hex: fontColor.value, strength: rule.color?.strength ?? 100 };
+				save();
+			});
+
+			const fontSliderWrap = fontInputs.createDiv('ft-conditional-slider-wrap');
+			const fontStrength = fontSliderWrap.createEl('input', {
+				type: 'range',
+				value: String(rule.color?.strength ?? 100),
+				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Font strength' },
+			});
+			const fontStrengthValue = fontSliderWrap.createSpan({ cls: 'ft-conditional-strength' });
+			const updateFontStrength = (): void => {
+				fontStrengthValue.setText(`${fontStrength.value}%`);
+			};
+			updateFontStrength();
+			fontStrength.addEventListener('input', updateFontStrength);
+			fontStrength.addEventListener('change', () => {
+				rule.color = { ...rule.color, strength: Number(fontStrength.value) };
+				save();
+			});
+
+			const syncFontDisabled = (): void => {
+				fontInputs.classList.toggle('is-disabled', !fontCheck.checked);
+				fontColor.disabled = !fontCheck.checked;
+				fontStrength.disabled = !fontCheck.checked;
+			};
+			syncFontDisabled();
+			fontCheck.addEventListener('change', () => {
+				rule.fontEnabled = fontCheck.checked;
+				syncFontDisabled();
+				save();
+			});
+
+			// Background channel
+			const bgChannel = controlsRow.createDiv('ft-conditional-channel');
+			const bgHeader = bgChannel.createDiv('ft-conditional-channel-header');
+			const bgCheck = bgHeader.createEl('input', {
+				type: 'checkbox',
+				attr: { id: `ft-bg-check-${rule.id}` },
+			});
+			bgCheck.checked = isBackgroundEnabled(rule);
+			bgHeader.createEl('label', {
+				text: 'Background',
+				attr: { for: `ft-bg-check-${rule.id}` },
+				cls: 'ft-conditional-channel-title',
+			});
+
+			const bgChoice = rule.backgroundColor ?? { kind: 'custom', hex: '#A8ADB5', strength: 20 };
+			const bgResolved = resolveChoice(bgChoice, this.toolkit.settings.paletteTemplateId);
+			const bgInputs = bgChannel.createDiv('ft-conditional-channel-inputs');
+			const bgColor = bgInputs.createEl('input', {
+				type: 'color',
+				value: bgResolved?.hex ?? '#A8ADB5',
+				attr: { 'aria-label': 'Background color' },
+			});
+			bgColor.addEventListener('change', () => {
+				rule.backgroundColor = { kind: 'custom', hex: bgColor.value, strength: rule.backgroundColor?.strength ?? 20 };
+				save();
+			});
+
+			const bgSliderWrap = bgInputs.createDiv('ft-conditional-slider-wrap');
+			const bgStrength = bgSliderWrap.createEl('input', {
+				type: 'range',
+				value: String(bgChoice.strength ?? 20),
+				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Background strength' },
+			});
+			const bgStrengthValue = bgSliderWrap.createSpan({ cls: 'ft-conditional-strength' });
+			const updateBgStrength = (): void => {
+				bgStrengthValue.setText(`${bgStrength.value}%`);
+			};
+			updateBgStrength();
+			bgStrength.addEventListener('input', updateBgStrength);
+			bgStrength.addEventListener('change', () => {
+				rule.backgroundColor = { ...(rule.backgroundColor ?? bgChoice), strength: Number(bgStrength.value) };
+				save();
+			});
+
+			const syncBgDisabled = (): void => {
+				bgInputs.classList.toggle('is-disabled', !bgCheck.checked);
+				bgColor.disabled = !bgCheck.checked;
+				bgStrength.disabled = !bgCheck.checked;
+			};
+			syncBgDisabled();
+			bgCheck.addEventListener('change', () => {
+				rule.backgroundEnabled = bgCheck.checked;
+				if (!rule.backgroundColor) {
+					rule.backgroundColor = { kind: 'custom', hex: bgColor.value, strength: Number(bgStrength.value) };
+				}
+				syncBgDisabled();
+				save();
+			});
+
+			// Typography toggles (Bold & Strikethrough)
+			const typeGroup = controlsRow.createDiv('ft-conditional-type-group');
+			typeGroup.createSpan({ text: 'Style', cls: 'ft-conditional-channel-title' });
+			const typeButtons = typeGroup.createDiv('ft-conditional-type-buttons');
+
+			const boldBtn = typeButtons.createEl('button', {
+				type: 'button',
+				cls: 'ft-style-toggle',
+				attr: { 'aria-label': 'Bold', 'aria-pressed': String(rule.bold === true) },
+			});
+			boldBtn.createEl('b', { text: 'B' });
+			if (rule.bold) boldBtn.addClass('is-active');
+			boldBtn.addEventListener('click', () => {
+				rule.bold = !rule.bold;
+				boldBtn.toggleClass('is-active', !!rule.bold);
+				boldBtn.setAttribute('aria-pressed', String(rule.bold));
+				save();
+			});
+
+			const strikeBtn = typeButtons.createEl('button', {
+				type: 'button',
+				cls: 'ft-style-toggle',
+				attr: { 'aria-label': 'Strikethrough', 'aria-pressed': String(rule.strikethrough === true) },
+			});
+			strikeBtn.createEl('s', { text: 'S' });
+			if (rule.strikethrough) strikeBtn.addClass('is-active');
+			strikeBtn.addEventListener('click', () => {
+				rule.strikethrough = !rule.strikethrough;
+				strikeBtn.toggleClass('is-active', !!rule.strikethrough);
+				strikeBtn.setAttribute('aria-pressed', String(rule.strikethrough));
+				save();
 			});
 		}
 

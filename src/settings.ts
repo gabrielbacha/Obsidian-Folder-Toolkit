@@ -88,18 +88,39 @@ function normalizeConditionalFormat(value: unknown, paletteLength: number): Cond
 	const match = value.match === 'equals' || value.match === 'startsWith' || value.match === 'endsWith' || value.match === 'contains'
 		? value.match
 		: null;
-	const effect = value.effect === 'text' || value.effect === 'background'
+	if (!target || !match) return null;
+
+	// `effect` and `background` are legacy single-channel fields from 1.2.1.
+	const legacyEffect = value.effect === 'text' || value.effect === 'background' || value.effect === 'both'
 		? value.effect
-		: value.background !== undefined ? 'background' : null;
-	const color = normalizeChoice(value.color ?? value.background, paletteLength);
-	if (!target || !match || !effect || !color || color.kind === 'none') return null;
+		: value.background !== undefined ? 'background' : 'both';
+
+	const color = normalizeChoice(value.color ?? value.background, paletteLength)
+		?? { kind: 'custom', hex: '#A8ADB5', strength: 100 };
+
+	const rawBg = value.backgroundColor ?? (legacyEffect === 'background' || legacyEffect === 'both' ? (value.color ?? value.background) : undefined);
+	const backgroundColor = normalizeChoice(rawBg, paletteLength)
+		?? { kind: 'custom', hex: '#A8ADB5', strength: 20 };
+
+	const fontEnabled = value.fontEnabled !== undefined
+		? value.fontEnabled === true
+		: legacyEffect !== 'background';
+
+	const backgroundEnabled = value.backgroundEnabled !== undefined
+		? value.backgroundEnabled === true
+		: legacyEffect === 'background' || legacyEffect === 'both';
+
 	return {
 		id: value.id,
 		target,
 		match,
 		pattern: value.pattern,
-		effect,
-		color,
+		fontEnabled,
+		color: color.kind === 'none' ? { kind: 'custom', hex: '#A8ADB5', strength: 100 } : color,
+		backgroundEnabled,
+		backgroundColor: backgroundColor.kind === 'none' ? { kind: 'custom', hex: '#A8ADB5', strength: 20 } : backgroundColor,
+		bold: value.bold === true,
+		strikethrough: value.strikethrough === true,
 	};
 }
 
@@ -108,7 +129,8 @@ function addDefaultConditionalFormats(rules: ConditionalFormatRule[]): Condition
 	for (const builtIn of [...DEFAULT_CONDITIONAL_FORMATS].reverse()) {
 		const exists = result.some((rule) => rule.target === builtIn.target
 			&& rule.match === builtIn.match
-			&& rule.effect === builtIn.effect
+			&& rule.fontEnabled === builtIn.fontEnabled
+			&& rule.backgroundEnabled === builtIn.backgroundEnabled
 			&& rule.pattern.toLocaleLowerCase() === builtIn.pattern.toLocaleLowerCase());
 		if (!exists) result.unshift(structuredClone(builtIn));
 	}

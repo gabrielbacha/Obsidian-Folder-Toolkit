@@ -1,4 +1,4 @@
-import type { ConditionalFormatRule, EffectRule, FolderToolkitSettings } from './types';
+import type { ColorChoice, ConditionalFormatRule, EffectRule, FolderToolkitSettings } from './types';
 
 function basename(path: string): string {
 	return path.split('/').at(-1) ?? path;
@@ -9,13 +9,22 @@ export function matchesConditionalFormat(path: string, isFolder: boolean, rule: 
 	if (rule.target !== 'both' && rule.target !== (isFolder ? 'folder' : 'file')) return false;
 	const name = basename(path);
 	const candidate = name.toLocaleLowerCase();
+	const candidateWithoutExt = !isFolder ? candidate.replace(/\.[a-z0-9]+$/, '') : candidate;
 	const pattern = rule.pattern.toLocaleLowerCase();
 	switch (rule.match) {
-		case 'equals': return candidate === pattern;
+		case 'equals': return candidate === pattern || candidateWithoutExt === pattern;
 		case 'startsWith': return candidate.startsWith(pattern);
-		case 'endsWith': return candidate.endsWith(pattern);
+		case 'endsWith': return candidate.endsWith(pattern) || candidateWithoutExt.endsWith(pattern);
 		case 'contains': return candidate.includes(pattern);
 	}
+}
+
+export function isFontEnabled(rule: ConditionalFormatRule): boolean {
+	return rule.fontEnabled !== false;
+}
+
+export function isBackgroundEnabled(rule: ConditionalFormatRule): boolean {
+	return rule.backgroundEnabled === true;
 }
 
 export function conditionalEffectFor(
@@ -24,9 +33,31 @@ export function conditionalEffectFor(
 	effect: 'text' | 'background',
 	settings: FolderToolkitSettings,
 ): EffectRule | undefined {
-	let matched: ConditionalFormatRule | undefined;
+	let matchedChoice: Exclude<ColorChoice, { kind: 'none' }> | undefined;
 	for (const rule of settings.conditionalFormats) {
-		if (rule.effect === effect && matchesConditionalFormat(path, isFolder, rule)) matched = rule;
+		if (!matchesConditionalFormat(path, isFolder, rule)) continue;
+		if (effect === 'text' && isFontEnabled(rule)) {
+			matchedChoice = rule.color;
+		}
+		if (effect === 'background' && isBackgroundEnabled(rule)) {
+			matchedChoice = rule.backgroundColor ?? rule.color;
+		}
 	}
-	return matched ? { choice: matched.color, cascade: false } : undefined;
+	return matchedChoice ? { choice: matchedChoice, cascade: false } : undefined;
+}
+
+export function conditionalStylesFor(
+	path: string,
+	isFolder: boolean,
+	settings: FolderToolkitSettings,
+): { bold: boolean; strikethrough: boolean } {
+	let bold = false;
+	let strikethrough = false;
+	for (const rule of settings.conditionalFormats) {
+		if (matchesConditionalFormat(path, isFolder, rule)) {
+			if (rule.bold) bold = true;
+			if (rule.strikethrough) strikethrough = true;
+		}
+	}
+	return { bold, strikethrough };
 }

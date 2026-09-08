@@ -8,7 +8,7 @@ describe('settings normalization', () => {
 		expect(settings).toEqual(DEFAULT_SETTINGS);
 		expect(settings).not.toBe(DEFAULT_SETTINGS);
 		expect(settings.conditionalFormats.map((rule) => rule.pattern)).toEqual(['__system', '__archive', '_basefiles']);
-		expect(settings.conditionalFormats.every((rule) => rule.effect === 'text')).toBe(true);
+		expect(settings.conditionalFormats.every((rule) => rule.fontEnabled && !rule.backgroundEnabled)).toBe(true);
 		const migrated = normalizeSettings({ schemaVersion: 2, conditionalFormats: [] });
 		expect(migrated.conditionalFormats.map((rule) => rule.pattern))
 			.toEqual(['__system', '__archive', '_basefiles']);
@@ -21,7 +21,7 @@ describe('settings normalization', () => {
 		});
 		expect(migratedWithBackground.conditionalFormats
 			.filter((rule) => rule.pattern === '__system')
-			.map((rule) => rule.effect)).toEqual(['text', 'background']);
+			.map((rule) => [rule.fontEnabled, rule.backgroundEnabled])).toEqual([[true, false], [false, true]]);
 	});
 
 	it('normalizes color strength for custom and palette colors', () => {
@@ -78,9 +78,43 @@ describe('settings normalization', () => {
 			target: 'folder',
 			match: 'equals',
 			pattern: '__system',
-			effect: 'background',
+			fontEnabled: false,
 			color: { kind: 'custom', hex: '#A8ADB5', strength: 100 },
+			backgroundEnabled: true,
+			backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 100 },
+			bold: false,
+			strikethrough: false,
 		}]);
 	});
 
+	it('normalizes rules with both font and background colors and typography', () => {
+		const settings = normalizeSettings({
+			schemaVersion: 3,
+			conditionalFormats: [
+				{
+					id: 'archive-rule',
+					target: 'both',
+					match: 'startsWith',
+					pattern: '__archive',
+					effect: 'both',
+					color: { kind: 'custom', hex: '#ffffff', strength: 100 },
+					backgroundColor: { kind: 'custom', hex: '#222222', strength: 40 },
+					bold: true,
+					strikethrough: true,
+				},
+			],
+		});
+		expect(settings.conditionalFormats).toEqual([{
+			id: 'archive-rule',
+			target: 'both',
+			match: 'startsWith',
+			pattern: '__archive',
+			fontEnabled: true,
+			color: { kind: 'custom', hex: '#FFFFFF', strength: 100 },
+			backgroundEnabled: true,
+			backgroundColor: { kind: 'custom', hex: '#222222', strength: 40 },
+			bold: true,
+			strikethrough: true,
+		}]);
+	});
 });

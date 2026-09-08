@@ -28,4 +28,17 @@ describe('colors', () => {
 		expect(resolveChoice({ kind: 'preset', slot: 0, strength: 100 }, 'ember')?.strength).toBe(100);
 		expect(resolveChoice({ kind: 'none' }, 'default')).toBeNull();
 	});
+
+	it('preserves exact hex for custom colors without forced contrast alteration', () => {
+		const white = resolveChoice({ kind: 'custom', hex: '#FFFFFF', strength: 100 }, 'default')!;
+		expect(white.hex).toBe('#FFFFFF');
+		expect(white.foregroundLight).toBe('#FFFFFF');
+		expect(white.foregroundDark).toBe('#FFFFFF');
+		expect(white.strength).toBe(100);
+
+		const black = resolveChoice({ kind: 'custom', hex: '#000000', strength: 100 }, 'default')!;
+		expect(black.hex).toBe('#000000');
+		expect(black.foregroundLight).toBe('#000000');
+		expect(black.foregroundDark).toBe('#000000');
+	});
 });

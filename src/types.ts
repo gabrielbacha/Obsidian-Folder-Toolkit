@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -43,14 +43,17 @@ export interface AppearanceRule {
 export type ConditionalTarget = 'folder' | 'file' | 'both';
 export type ConditionalMatch = 'equals' | 'startsWith' | 'endsWith' | 'contains';
 
-export type ConditionalEffect = 'text' | 'background';
 export interface ConditionalFormatRule {
 	id: string;
 	target: ConditionalTarget;
 	match: ConditionalMatch;
 	pattern: string;
-	effect: ConditionalEffect;
+	fontEnabled?: boolean;
 	color: Exclude<ColorChoice, { kind: 'none' }>;
+	backgroundEnabled?: boolean;
+	backgroundColor?: Exclude<ColorChoice, { kind: 'none' }>;
+	bold?: boolean;
+	strikethrough?: boolean;
 }
 
 export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
@@ -59,24 +62,36 @@ export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
 		target: 'folder',
 		match: 'equals',
 		pattern: '__system',
-		effect: 'text',
+		fontEnabled: true,
 		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+		backgroundEnabled: false,
+		backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
+		bold: false,
+		strikethrough: false,
 	},
 	{
 		id: 'default-archive-files',
 		target: 'file',
 		match: 'startsWith',
 		pattern: '__archive',
-		effect: 'text',
+		fontEnabled: true,
 		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+		backgroundEnabled: false,
+		backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
+		bold: false,
+		strikethrough: false,
 	},
 	{
 		id: 'default-basefiles-folders',
 		target: 'folder',
 		match: 'endsWith',
 		pattern: '_basefiles',
-		effect: 'text',
+		fontEnabled: true,
 		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+		backgroundEnabled: false,
+		backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
+		bold: false,
+		strikethrough: false,
 	},
 ];
 
