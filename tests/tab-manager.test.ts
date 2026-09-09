@@ -9,10 +9,10 @@ function settings(mode: 'off' | 'background' | 'border'): FolderToolkitSettings 
 		paletteTemplateId: 'default',
 		tabStyle: mode,
 		appearanceRules: {
-			A: { text: { choice: { kind: 'preset', slot: 0 }, cascade: true } },
+			A: { text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true } },
 			B: { background: { choice: { kind: 'preset', slot: 1 }, cascade: true } },
 			C: {
-				text: { choice: { kind: 'preset', slot: 2 }, cascade: true },
+				text: { color: { kind: 'preset', slot: 2 }, bold: false, strikethrough: false, cascade: true },
 				background: { choice: { kind: 'preset', slot: 3 }, cascade: true },
 			},
 		},

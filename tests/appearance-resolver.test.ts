@@ -11,11 +11,11 @@ const settings: FolderToolkitSettings = {
 	showHiddenItems: false,
 	appearanceRules: {
 		A: {
-			text: { choice: { kind: 'preset', slot: 0 }, cascade: true },
+			text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true },
 			background: { choice: { kind: 'preset', slot: 1 }, cascade: true },
 			border: { style: 'box', color: { kind: 'preset', slot: 2 } },
 		},
-		'A/B': { text: { choice: { kind: 'preset', slot: 3 }, cascade: false } },
+		'A/B': { text: { color: { kind: 'preset', slot: 3 }, bold: false, strikethrough: false, cascade: false } },
 		'A/Blocked': { background: { choice: { kind: 'none' }, cascade: true } },
 	},
 };
@@ -28,7 +28,7 @@ describe('appearance resolution', () => {
 				A: { background: { choice: { kind: 'custom', hex: '#111111', strength: 100 }, cascade: true } },
 				B: {
 					background: { choice: { kind: 'custom', hex: '#111111', strength: 100 }, cascade: true },
-					text: { choice: { kind: 'custom', hex: '#FF0000' }, cascade: true },
+					text: { color: { kind: 'custom', hex: '#FF0000' }, bold: false, strikethrough: false, cascade: true },
 				},
 			},
 		};
@@ -262,4 +262,68 @@ describe('appearance resolution', () => {
 		expect(res.text).toBeNull();
 		expect(res.background?.hex).toBe('#333333');
 	});
+
+	it("resolves text color and typography independently with explicit off states", () => {
+		const mixed: FolderToolkitSettings = {
+			...settings,
+			appearanceRules: {
+				Root: { text: { bold: true, strikethrough: true, cascade: true } },
+				"Root/__archive-direct.md": { text: { bold: false, strikethrough: false, cascade: false } },
+			},
+			conditionalFormats: [{
+				id: "archive",
+				target: "file",
+				match: "startsWith",
+				pattern: "__archive",
+				fontEnabled: true,
+				color: { kind: "custom", hex: "#C8C8C8", strength: 100 },
+				bold: true,
+				strikethrough: true,
+			}],
+		};
+
+		const direct = resolveAppearance("Root/__archive-direct.md", { settings: mixed, isFolder: false });
+		expect(direct.text?.hex).toBe("#C8C8C8");
+		expect(direct.bold).toBe(false);
+		expect(direct.strikethrough).toBe(false);
+
+		const inherited = resolveAppearance("Root/plain.md", { settings: mixed, isFolder: false });
+		expect(inherited.bold).toBe(true);
+		expect(inherited.strikethrough).toBe(true);
+	});
+
+	it("uses the last matching conditional rule for typography before a cascading ancestor", () => {
+		const precedence: FolderToolkitSettings = {
+			...settings,
+			appearanceRules: {
+				Root: { text: { bold: true, strikethrough: true, cascade: true } },
+			},
+			conditionalFormats: [
+				{
+					id: "first",
+					target: "file",
+					match: "contains",
+					pattern: "draft",
+					fontEnabled: false,
+					color: { kind: "custom", hex: "#FFFFFF" },
+					bold: true,
+					strikethrough: true,
+				},
+				{
+					id: "later",
+					target: "file",
+					match: "contains",
+					pattern: "draft",
+					fontEnabled: false,
+					color: { kind: "custom", hex: "#FFFFFF" },
+					bold: false,
+					strikethrough: false,
+				},
+			],
+		};
+		const resolved = resolveAppearance("Root/draft.md", { settings: precedence, isFolder: false });
+		expect(resolved.bold).toBe(false);
+		expect(resolved.strikethrough).toBe(false);
+	});
+
 });

@@ -1,39 +1,65 @@
 import { resolveAutomaticText, resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
 import { conditionalEffectFor, conditionalStylesFor } from './conditional-format';
-import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings } from './types';
+import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings, TextAppearanceRule } from './types';
 
-export function hasDirectColor(rule: AppearanceRule | undefined): boolean {
+export function hasDirectAppearance(rule: AppearanceRule | undefined): boolean {
 	const backgroundKind = rule?.background?.choice.kind;
-	const textKind = rule?.text?.choice.kind;
+	const textKind = rule?.text?.color?.kind;
 	return (backgroundKind !== undefined && backgroundKind !== 'none')
 		|| (textKind !== undefined && textKind !== 'none')
-		|| rule?.border !== undefined;
+		|| rule?.border !== undefined
+		|| rule?.text !== undefined;
 }
 
 export interface ResolvedAppearance {
 	text: ResolvedColor | null;
 	background: ResolvedColor | null;
 	border: { style: 'box' | 'rail'; color: ResolvedColor; thickness?: 'thin' | 'medium' | 'thick'; shading?: boolean } | null;
-	bold?: boolean;
-	strikethrough?: boolean;
+	bold: boolean;
+	strikethrough: boolean;
 }
 
-function effectiveEffect(
+function effectiveBackground(
 	path: string,
-	key: 'text' | 'background',
 	context: ResolverContext,
 ): EffectRule | undefined {
 	const rules = context.settings.appearanceRules;
-	const direct = rules[path]?.[key];
+	const direct = rules[path]?.background;
 	if (direct) return direct;
-	const conditional = conditionalEffectFor(path, isFolderPath(path, context), key, context.settings);
+	const conditional = conditionalEffectFor(path, isFolderPath(path, context), 'background', context.settings);
 	if (conditional) return conditional;
 	for (const parent of parentPaths(path)) {
-		const candidate = rules[parent]?.[key];
+		const candidate = rules[parent]?.background;
 		if (candidate?.cascade) return candidate;
 	}
 	return undefined;
+}
+
+function effectiveTextColor(path: string, context: ResolverContext): EffectRule | undefined {
+	const rules = context.settings.appearanceRules;
+	const direct = rules[path]?.text;
+	if (direct?.color) return { choice: direct.color, cascade: direct.cascade };
+	const conditional = conditionalEffectFor(path, isFolderPath(path, context), 'text', context.settings);
+	if (conditional) return conditional;
+	for (const parent of parentPaths(path)) {
+		const candidate = rules[parent]?.text;
+		if (candidate?.cascade && candidate.color) return { choice: candidate.color, cascade: true };
+	}
+	return undefined;
+}
+
+function effectiveTypography(path: string, context: ResolverContext): Pick<TextAppearanceRule, 'bold' | 'strikethrough'> {
+	const rules = context.settings.appearanceRules;
+	const direct = rules[path]?.text;
+	if (direct) return direct;
+	const conditional = conditionalStylesFor(path, isFolderPath(path, context), context.settings);
+	if (conditional) return conditional;
+	for (const parent of parentPaths(path)) {
+		const candidate = rules[parent]?.text;
+		if (candidate?.cascade) return candidate;
+	}
+	return { bold: false, strikethrough: false };
 }
 
 export interface ResolverContext {
@@ -80,8 +106,8 @@ function effectiveBorder(
 }
 
 export function resolveAppearance(path: string, context: ResolverContext): ResolvedAppearance {
-	const text = effectiveEffect(path, 'text', context);
-	const background = effectiveEffect(path, 'background', context);
+	const text = effectiveTextColor(path, context);
+	const background = effectiveBackground(path, context);
 	const border = effectiveBorder(path, context);
 	
 	const resolvedBorder = border ? resolveChoice(border.color, context.settings.paletteTemplateId) : null;
@@ -91,7 +117,7 @@ export function resolveAppearance(path: string, context: ResolverContext): Resol
 		? resolveAutomaticText(resolvedBackground)
 		: null;
 	
-	const styles = conditionalStylesFor(path, isFolderPath(path, context), context.settings);
+	const styles = effectiveTypography(path, context);
 
 	return {
 		text: resolvedText ? resolveTextAgainstBackground(resolvedText, resolvedBackground) : automaticText,

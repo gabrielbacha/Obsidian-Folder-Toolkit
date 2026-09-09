@@ -71,7 +71,7 @@ describe('ExplorerManager', () => {
 			tabStyle: 'off',
 			appearanceRules: {
 				A: {
-					text: { choice: { kind: 'preset', slot: 0 }, cascade: true },
+					text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true },
 					border: { style: 'box', color: { kind: 'preset', slot: 1 } },
 				},
 			},
@@ -210,4 +210,25 @@ describe('ExplorerManager', () => {
 		expect(rowFor('A/B').hasClass('ft-border-shaded')).toBe(true);
 		manager.stop();
 	});
+
+	it("applies and fully removes direct typography overrides", () => {
+		settings.appearanceRules.Other = {
+			text: { bold: true, strikethrough: true, cascade: false },
+		};
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
+		manager.syncLeaves();
+		manager.reconcile();
+		const row = root.querySelector<HTMLElement>("[data-path=\"Other\"]")!.parentElement!;
+		expect(row.hasClass("ft-is-bold")).toBe(true);
+		expect(row.hasClass("ft-is-strikethrough")).toBe(true);
+		expect(row.hasClass("ft-direct-color-rule")).toBe(true);
+
+		delete settings.appearanceRules.Other;
+		manager.reconcile();
+		expect(row.hasClass("ft-is-bold")).toBe(false);
+		expect(row.hasClass("ft-is-strikethrough")).toBe(false);
+		expect(row.hasClass("ft-direct-color-rule")).toBe(false);
+		manager.stop();
+	});
+
 });

@@ -10,6 +10,7 @@ import {
 	type DescendantRule,
 	type EffectRule,
 	type FolderToolkitSettings,
+	type TextAppearanceRule,
 } from './types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -37,6 +38,19 @@ function normalizeEffect(value: unknown, paletteLength: number): EffectRule | un
 	if (!isRecord(value)) return undefined;
 	const choice = normalizeChoice(value.choice, paletteLength);
 	return choice ? { choice, cascade: value.cascade === true } : undefined;
+}
+
+function normalizeTextAppearance(value: unknown, paletteLength: number): TextAppearanceRule | undefined {
+	if (!isRecord(value)) return undefined;
+	const color = normalizeChoice(value.color ?? value.choice, paletteLength);
+	const hasTypography = typeof value.bold === 'boolean' || typeof value.strikethrough === 'boolean';
+	if (!color && !hasTypography) return undefined;
+	return {
+		...(color ? { color } : {}),
+		bold: value.bold === true,
+		strikethrough: value.strikethrough === true,
+		cascade: value.cascade === true,
+	};
 }
 
 function normalizeThickness(value: unknown): 'thin' | 'medium' | 'thick' | undefined {
@@ -69,7 +83,7 @@ function normalizeDescendants(value: unknown): DescendantRule | undefined {
 
 function normalizeAppearance(value: unknown, paletteLength: number): AppearanceRule | null {
 	if (!isRecord(value)) return null;
-	const text = normalizeEffect(value.text, paletteLength);
+	const text = normalizeTextAppearance(value.text, paletteLength);
 	const background = normalizeEffect(value.background, paletteLength);
 	const border = normalizeBorder(value.border, paletteLength);
 	const descendants = normalizeDescendants(value.descendants);

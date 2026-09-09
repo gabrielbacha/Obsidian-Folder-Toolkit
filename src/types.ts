@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -13,6 +13,13 @@ export type ColorChoice =
 
 export interface EffectRule {
 	choice: ColorChoice;
+	cascade: boolean;
+}
+
+export interface TextAppearanceRule {
+	color?: ColorChoice;
+	bold: boolean;
+	strikethrough: boolean;
 	cascade: boolean;
 }
 
@@ -34,7 +41,7 @@ export interface DescendantRule {
 }
 
 export interface AppearanceRule {
-	text?: EffectRule;
+	text?: TextAppearanceRule;
 	background?: EffectRule;
 	border?: BorderRule;
 	descendants?: DescendantRule;
@@ -63,7 +70,7 @@ export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
 		match: 'equals',
 		pattern: '__system',
 		fontEnabled: true,
-		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+		color: { kind: 'custom', hex: '#C8C8C8', strength: 100 },
 		backgroundEnabled: false,
 		backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
 		bold: false,
@@ -75,7 +82,7 @@ export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
 		match: 'startsWith',
 		pattern: '__archive',
 		fontEnabled: true,
-		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+		color: { kind: 'custom', hex: '#C8C8C8', strength: 100 },
 		backgroundEnabled: false,
 		backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
 		bold: false,
@@ -87,7 +94,7 @@ export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
 		match: 'endsWith',
 		pattern: '_basefiles',
 		fontEnabled: true,
-		color: { kind: 'custom', hex: '#A8ADB5', strength: 65 },
+		color: { kind: 'custom', hex: '#C8C8C8', strength: 100 },
 		backgroundEnabled: false,
 		backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
 		bold: false,

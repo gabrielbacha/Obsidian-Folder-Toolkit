@@ -1,18 +1,19 @@
 import { Modal, TFolder, setIcon } from 'obsidian';
 import { resolveAppearance } from '../appearance-resolver';
-import { normalizeHex, paletteTemplate, resolveChoice } from '../colors';
+import { AppearanceControlRenderer } from './appearance-controls';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, BorderRule, ColorChoice, DescendantRule } from '../types';
+import type { AppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
 
 type EffectKey = 'text' | 'background';
 
 export class AppearanceModal extends Modal {
 	private draft: AppearanceRule;
 	private readonly isFolder: boolean;
-	private pickerCleanups: Array<() => void> = [];
-	private textExpanded = false;
+	private readonly controls = new AppearanceControlRenderer(this.toolkit);
 	private rememberedBorder: BorderRule;
 	private rememberedDescendants: DescendantRule;
+	private textCascade: boolean;
+	private backgroundCascade: boolean;
 
 	constructor(
 		private readonly toolkit: FolderToolkitPlugin,
@@ -33,11 +34,13 @@ export class AppearanceModal extends Modal {
 			thickness: 'thin',
 			shading: false,
 		});
+		this.textCascade = this.draft.text?.cascade ?? this.isFolder;
+		this.backgroundCascade = this.draft.background?.cascade ?? this.isFolder;
 	}
 
 	onOpen(): void {
 		this.contentEl.ownerDocument.body.addClass('ft-show-direct-color-indicators');
-		this.setTitle(`Edit ${this.isFolder ? 'folder' : 'file'} colors`);
+		this.setTitle(`Edit ${this.isFolder ? 'folder' : 'file'} appearance`);
 		this.render();
 	}
 
@@ -51,19 +54,24 @@ export class AppearanceModal extends Modal {
 	private render(): void {
 		this.clearPickerListeners();
 		this.contentEl.empty();
-		this.contentEl.addClass('ft-appearance-modal');
-		this.renderPreview();
-		const cards = this.contentEl.createDiv('ft-appearance-grid');
-		this.renderEffect(cards, 'background', 'Background');
-		if (this.isFolder) {
-			this.renderBorder(cards);
-			this.renderDescendants(cards);
-		}
+		this.contentEl.addClass('ft-appearance-modal', this.isFolder ? 'ft-appearance-modal--folder' : 'ft-appearance-modal--file');
+		const layout = this.contentEl.createDiv('ft-appearance-layout');
+		const previewPane = layout.createDiv('ft-appearance-preview-pane');
+		this.renderPreview(previewPane);
+		const cards = layout.createDiv('ft-appearance-grid');
+		this.renderBackground(cards);
+		if (this.isFolder) this.renderBorder(cards);
 		this.renderText(cards);
+		if (this.isFolder) this.renderDescendants(cards);
 
 		const footer = this.contentEl.createDiv('ft-modal-footer');
 		const clear = footer.createEl('button', { text: 'Reset to inherited', attr: { type: 'button' } });
-		clear.addEventListener('click', () => { this.draft = {}; this.render(); });
+		clear.addEventListener('click', () => {
+			this.draft = {};
+			this.textCascade = this.isFolder;
+			this.backgroundCascade = this.isFolder;
+			this.render();
+		});
 		const cancel = footer.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
 		cancel.addEventListener('click', () => this.close());
 		const save = footer.createEl('button', { text: 'Save', cls: 'mod-cta', attr: { type: 'button' } });
@@ -80,7 +88,7 @@ export class AppearanceModal extends Modal {
 			this.onSaved?.();
 			this.close();
 		} catch {
-			error.setText('The color rule could not be saved. Try again.');
+			error.setText('The appearance rule could not be saved. Try again.');
 			error.addClass('is-visible');
 			button.disabled = false;
 		}
@@ -88,11 +96,11 @@ export class AppearanceModal extends Modal {
 
 	private previewRows: Array<{ path: string; el: HTMLElement; titleEl: HTMLElement; isFolder: boolean; relation: 'root' | 'ancestor' | 'descendant' }> = [];
 
-	private renderPreview(): void {
-		const preview = this.contentEl.createDiv('ft-live-preview');
+	private renderPreview(container: HTMLElement): void {
+		const preview = container.createDiv('ft-live-preview');
 		preview.createDiv({ text: 'Preview', cls: 'ft-live-preview__label' });
 		this.previewRows = [];
-		const container = preview.createDiv('ft-preview-tree');
+		const tree = preview.createDiv('ft-preview-tree');
 		
 		const createFolderRow = (parent: HTMLElement, name: string, path: string, relation: 'root' | 'ancestor' | 'descendant', collapsed: boolean = false) => {
 			const folderContainer = parent.createDiv('nav-folder');
@@ -116,7 +124,7 @@ export class AppearanceModal extends Modal {
 
 		const rootName = this.path.split('/').at(-1) ?? this.path;
 		if (this.isFolder) {
-			const { childrenContainer } = createFolderRow(container, rootName, this.path, 'root');
+			const { childrenContainer } = createFolderRow(tree, rootName, this.path, 'root');
 			
 			// Subfolder 1 (Collapsed)
 			const sub1Path = `${this.path}/Subfolder 1`;
@@ -130,7 +138,7 @@ export class AppearanceModal extends Modal {
 			}
 			createFileRow(childrenContainer, 'File 1', `${this.path}/File 1`, 'descendant');
 		} else {
-			createFileRow(container, rootName, this.path, 'root');
+			createFileRow(tree, rootName, this.path, 'root');
 		}
 
 		this.updateModalPreview();
@@ -162,6 +170,8 @@ export class AppearanceModal extends Modal {
 			const directBlocks = directBackground?.choice.kind === 'none';
 			const directCascades = isFolder && directBackground?.cascade === true;
 			titleEl.classList.toggle('ft-preview-has-text', appearance.text !== null);
+			titleEl.classList.toggle('ft-preview-is-bold', appearance.bold === true);
+			titleEl.classList.toggle('ft-preview-is-strikethrough', appearance.strikethrough === true);
 			el.classList.toggle('ft-preview-background-cascade', directHasColor && directCascades);
 			el.classList.toggle('ft-preview-background-block', directBlocks === true);
 			el.classList.toggle('ft-preview-background-block-cascade', directBlocks === true && directCascades);
@@ -204,155 +214,165 @@ export class AppearanceModal extends Modal {
 		}
 	}
 
-	private renderEffect(container: HTMLElement, key: EffectKey, label: string): void {
-		const card = container.createDiv(`ft-color-card ft-color-card--${key}`);
+	private renderBackground(container: HTMLElement): void {
+		const card = container.createDiv('ft-color-card ft-color-card--background');
 		const header = card.createDiv('ft-color-card__header');
-		header.createEl('h3', { text: label });
-		const effect = this.draft[key];
-		if (this.isFolder) this.renderCascade(header, key, effect !== undefined);
-		this.renderEffectControls(card, key);
-	}
-
-	private renderEffectControls(container: HTMLElement, key: EffectKey): void {
-		const effect = this.draft[key];
-		const modes = container.createDiv('ft-choice-row');
-		this.choiceButton(modes, 'Inherit', effect === undefined, () => { delete this.draft[key]; this.render(); });
-		this.choiceButton(modes, 'No color', effect?.choice.kind === 'none', () => {
-			this.draft[key] = { choice: { kind: 'none' }, cascade: effect?.cascade ?? this.isFolder };
+		header.createEl('h3', { text: 'Background' });
+		if (this.isFolder) this.renderCascade(header, 'background');
+		const actions = card.createDiv('ft-choice-row');
+		this.clearButton(actions, 'Clear color', this.draft.background === undefined, () => {
+			delete this.draft.background;
 			this.render();
 		});
-		this.renderColorChoices(container, effect?.choice, (choice, rerender) => {
-			this.draft[key] = { choice, cascade: this.draft[key]?.cascade ?? this.isFolder };
-			if (rerender) this.render();
-			else this.refreshPreview();
-		}, key === 'background' ? 12 : 100, true, key === 'text');
+		this.controls.choiceButton(actions, 'No color', this.draft.background?.choice.kind === 'none', () => {
+			this.draft.background = { choice: { kind: 'none' }, cascade: this.backgroundCascade };
+			this.render();
+		});
+		this.controls.renderColorControls(card, {
+			selected: this.draft.background?.choice,
+			defaultStrength: 12,
+			onSelect: (choice, rerender) => {
+				if (!choice) return;
+				this.draft.background = { choice, cascade: this.backgroundCascade };
+				if (rerender) this.render(); else this.refreshPreview();
+			},
+		});
 	}
 
 	private renderText(container: HTMLElement): void {
 		const card = container.createDiv('ft-color-card ft-color-card--text');
-		const trigger = card.createEl('button', {
-			cls: 'ft-disclosure-trigger',
-			attr: { type: 'button', 'aria-expanded': String(this.textExpanded) },
-		});
-		trigger.createSpan({ text: 'Text (optional)', cls: 'ft-disclosure-trigger__title' });
-		const summary = trigger.createSpan('ft-disclosure-trigger__summary');
-		const choice = this.draft.text?.choice;
-		const color = choice ? resolveChoice(choice, this.toolkit.settings.paletteTemplateId) : null;
-		if (color) {
-			const dot = summary.createSpan('ft-disclosure-trigger__dot');
-			dot.style.setProperty('--ft-summary-color', color.hex);
-		}
-		const strength = color?.strength === undefined ? '' : ` · ${color.strength}%`;
-		summary.createSpan({ text: choice?.kind === 'none' ? 'No color' : color ? `${color.hex}${strength}` : 'Inherited' });
-		const chevron = trigger.createSpan('ft-disclosure-trigger__chevron');
-		setIcon(chevron, this.textExpanded ? 'chevron-up' : 'chevron-down');
-		trigger.addEventListener('click', () => {
-			this.textExpanded = !this.textExpanded;
+		const header = card.createDiv('ft-color-card__header');
+		header.createEl('h3', { text: 'Text' });
+		if (this.isFolder) this.renderCascade(header, 'text');
+		const actions = card.createDiv('ft-choice-row');
+		this.clearButton(actions, 'Clear color', this.draft.text?.color === undefined, () => {
+			if (!this.draft.text) return;
+			delete this.draft.text.color;
+			this.removeEmptyTextOverride();
 			this.render();
 		});
-		if (!this.textExpanded) return;
-		const content = card.createDiv('ft-disclosure-content');
-		if (this.isFolder) this.renderCascade(content, 'text', this.draft.text !== undefined);
-		this.renderEffectControls(content, 'text');
+		this.controls.choiceButton(actions, 'No color', this.draft.text?.color?.kind === 'none', () => {
+			this.ensureText().color = { kind: 'none' };
+			this.render();
+		});
+		this.controls.renderColorControls(card, {
+			selected: this.draft.text?.color,
+			defaultStrength: 100,
+			includeWhite: true,
+			onSelect: (choice, rerender) => {
+				if (!choice) return;
+				this.ensureText().color = choice;
+				if (rerender) this.render(); else this.refreshPreview();
+			},
+		});
+		this.controls.renderTypography(card, this.draft.text?.bold ?? false, this.draft.text?.strikethrough ?? false, (bold, strikethrough) => {
+			this.draft.text = { ...this.ensureText(), bold, strikethrough };
+			this.removeEmptyTextOverride();
+			this.render();
+		});
 	}
 
-	private renderCascade(container: HTMLElement, key: EffectKey, enabled: boolean): void {
+	private ensureText(): TextAppearanceRule {
+		this.draft.text ??= { bold: false, strikethrough: false, cascade: this.textCascade };
+		return this.draft.text;
+	}
+
+	private removeEmptyTextOverride(): void {
+		if (this.draft.text && this.draft.text.color === undefined && !this.draft.text.bold && !this.draft.text.strikethrough) {
+			delete this.draft.text;
+		}
+	}
+
+	private renderCascade(container: HTMLElement, key: EffectKey): void {
 		const cascade = container.createEl('label', { cls: 'ft-cascade-control' });
 		const checkbox = cascade.createEl('input', { attr: { type: 'checkbox' } });
-		checkbox.checked = this.draft[key]?.cascade ?? true;
-		checkbox.disabled = !enabled;
+		checkbox.checked = key === 'text' ? this.textCascade : this.backgroundCascade;
 		cascade.createSpan({ text: 'Include descendants' });
 		checkbox.addEventListener('change', () => {
-			const current = this.draft[key];
-			if (current) this.draft[key] = { ...current, cascade: checkbox.checked };
+			if (key === 'text') {
+				this.textCascade = checkbox.checked;
+				if (this.draft.text) this.draft.text = { ...this.draft.text, cascade: checkbox.checked };
+			} else {
+				this.backgroundCascade = checkbox.checked;
+				if (this.draft.background) this.draft.background = { ...this.draft.background, cascade: checkbox.checked };
+			}
 			this.refreshPreview();
 		});
 	}
 
 	private renderBorder(container: HTMLElement): void {
-		const card = container.createDiv(`ft-color-card ft-color-card--border${this.draft.border ? '' : ' is-disabled'}`);
+		const card = container.createDiv('ft-color-card ft-color-card--border');
 		const header = card.createDiv('ft-color-card__header');
 		header.createEl('h3', { text: 'Border' });
-		const toggle = header.createEl('label', { cls: 'ft-border-toggle' });
-		const checkbox = toggle.createEl('input', { attr: { type: 'checkbox' } });
-		checkbox.checked = this.draft.border !== undefined;
-		toggle.createSpan({ text: 'Enable border' });
-		checkbox.addEventListener('change', () => {
-			if (checkbox.checked) this.draft.border = structuredClone(this.rememberedBorder);
-			else {
-				if (this.draft.border) this.rememberedBorder = structuredClone(this.draft.border);
-				delete this.draft.border;
-			}
+		this.clearButton(header, 'Clear border', this.draft.border === undefined, () => {
+			if (this.draft.border) this.rememberedBorder = structuredClone(this.draft.border);
+			delete this.draft.border;
 			this.render();
 		});
 
 		const styles = card.createDiv('ft-choice-row');
-		this.choiceButton(styles, 'Rounded box', this.rememberedBorder.style === 'box', () => {
+		this.choiceButton(styles, 'Rounded box', this.draft.border?.style === 'box', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'box' };
-			if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+			this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
-		this.choiceButton(styles, 'Vertical rail', this.rememberedBorder.style === 'rail', () => {
+		this.choiceButton(styles, 'Vertical rail', this.draft.border?.style === 'rail', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'rail' };
-			if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+			this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
 
 		const thicknessRow = card.createDiv('ft-choice-row');
-		const currentThickness = this.rememberedBorder.thickness ?? 'thin';
+		const currentThickness = this.draft.border?.thickness;
 		for (const size of ['thin', 'medium', 'thick'] as const) {
 			this.choiceButton(thicknessRow, size.charAt(0).toUpperCase() + size.slice(1), currentThickness === size, () => {
 				this.rememberedBorder = { ...this.rememberedBorder, thickness: size };
-				if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
+				this.draft.border = structuredClone(this.rememberedBorder);
 				this.render();
 			});
 		}
 
-		this.renderColorChoices(card, this.rememberedBorder.color, (choice, rerender) => {
-			if (choice.kind !== 'none') {
-				this.rememberedBorder = { ...this.rememberedBorder, color: choice };
-				if (this.draft.border) this.draft.border = structuredClone(this.rememberedBorder);
-			}
-			if (rerender) this.render();
-			else this.refreshPreview();
-		}, this.rememberedBorder.style === 'box' ? 42 : 55, this.draft.border !== undefined);
+		this.controls.renderColorControls(card, {
+			selected: this.draft.border?.color,
+			defaultStrength: this.rememberedBorder.style === 'box' ? 42 : 55,
+			onSelect: (choice, rerender) => {
+				if (choice && choice.kind !== 'none') {
+					this.rememberedBorder = { ...this.rememberedBorder, color: choice };
+					this.draft.border = structuredClone(this.rememberedBorder);
+				}
+				if (rerender) this.render(); else this.refreshPreview();
+			},
+		});
 	}
 
 	private renderDescendants(container: HTMLElement): void {
-		const card = container.createDiv(`ft-color-card ft-color-card--border${this.draft.descendants ? '' : ' is-disabled'}`);
+		const card = container.createDiv('ft-color-card ft-color-card--border');
 		const header = card.createDiv('ft-color-card__header');
 		header.createEl('h3', { text: 'Direct subfolders' });
-		const toggle = header.createEl('label', { cls: 'ft-border-toggle' });
-		const checkbox = toggle.createEl('input', { attr: { type: 'checkbox' } });
-		checkbox.checked = this.draft.descendants !== undefined;
-		toggle.createSpan({ text: 'Alternate border colors' });
-		checkbox.addEventListener('change', () => {
-			if (checkbox.checked) this.draft.descendants = structuredClone(this.rememberedDescendants);
-			else {
-				if (this.draft.descendants) this.rememberedDescendants = structuredClone(this.draft.descendants);
-				delete this.draft.descendants;
-			}
+		this.clearButton(header, 'Clear subfolder style', this.draft.descendants === undefined, () => {
+			if (this.draft.descendants) this.rememberedDescendants = structuredClone(this.draft.descendants);
+			delete this.draft.descendants;
 			this.render();
 		});
 
 		const styles = card.createDiv('ft-choice-row');
-		this.choiceButton(styles, 'Rounded box', this.rememberedDescendants.style === 'box', () => {
+		this.choiceButton(styles, 'Rounded box', this.draft.descendants?.style === 'box', () => {
 			this.rememberedDescendants = { ...this.rememberedDescendants, style: 'box' };
-			if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			this.draft.descendants = structuredClone(this.rememberedDescendants);
 			this.render();
 		});
-		this.choiceButton(styles, 'Vertical rail', this.rememberedDescendants.style === 'rail', () => {
+		this.choiceButton(styles, 'Vertical rail', this.draft.descendants?.style === 'rail', () => {
 			this.rememberedDescendants = { ...this.rememberedDescendants, style: 'rail' };
-			if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			this.draft.descendants = structuredClone(this.rememberedDescendants);
 			this.render();
 		});
 
 		const thicknessRow = card.createDiv('ft-choice-row');
-		const currentThickness = this.rememberedDescendants.thickness ?? 'thin';
+		const currentThickness = this.draft.descendants?.thickness;
 		for (const size of ['thin', 'medium', 'thick'] as const) {
 			this.choiceButton(thicknessRow, size.charAt(0).toUpperCase() + size.slice(1), currentThickness === size, () => {
 				this.rememberedDescendants = { ...this.rememberedDescendants, thickness: size };
-				if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+				this.draft.descendants = structuredClone(this.rememberedDescendants);
 				this.render();
 			});
 		}
@@ -360,157 +380,26 @@ export class AppearanceModal extends Modal {
 		const shadingRow = card.createDiv('ft-choice-row');
 		const shadingToggle = shadingRow.createEl('label', { cls: 'ft-border-toggle' });
 		const shadingCheck = shadingToggle.createEl('input', { attr: { type: 'checkbox' } });
-		shadingCheck.checked = !!this.rememberedDescendants.shading;
+		shadingCheck.checked = this.draft.descendants?.shading === true;
 		shadingToggle.createSpan({ text: 'Light shading inside border' });
 		shadingCheck.addEventListener('change', () => {
 			this.rememberedDescendants = { ...this.rememberedDescendants, shading: shadingCheck.checked };
-			if (this.draft.descendants) this.draft.descendants = structuredClone(this.rememberedDescendants);
+			this.draft.descendants = structuredClone(this.rememberedDescendants);
 			this.render();
 		});
 	}
 
-	private renderColorChoices(
-		container: HTMLElement,
-		selected: ColorChoice | undefined,
-		onSelect: (choice: ColorChoice, rerender: boolean) => void,
-		defaultStrength: number,
-		autoOpenCustom = true,
-		includeWhite = false,
-	): void {
-		const template = paletteTemplate(this.toolkit.settings.paletteTemplateId);
-		const selectedStrength = selected && selected.kind !== 'none' ? selected.strength : undefined;
-		const controlsHost = container.createDiv('ft-color-controls');
-		const paletteLabel = controlsHost.createDiv('ft-palette-label');
-		paletteLabel.createSpan({ text: template.label });
-		paletteLabel.createSpan({ text: 'Palette', cls: 'ft-palette-label__meta' });
-		const grid = controlsHost.createDiv('ft-swatch-grid');
-		grid.setAttribute('role', 'group');
-		grid.setAttribute('aria-label', `${template.label} colors`);
-		for (const [slot, hex] of template.colors.entries()) {
-			const isSelected = selected?.kind === 'preset' && selected.slot === slot;
-			const button = grid.createEl('button', {
-				cls: `ft-swatch${isSelected ? ' is-selected' : ''}`,
-				attr: { type: 'button', 'aria-label': `${hex}, color ${slot + 1}`, 'aria-pressed': String(isSelected), title: hex },
-			});
-			button.style.setProperty('--ft-swatch', hex);
-			button.addEventListener('click', () => onSelect({ kind: 'preset', slot, ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) }, true));
-		}
-		if (includeWhite) {
-			const isSelected = selected?.kind === 'custom' && selected.hex === '#FFFFFF';
-			const white = grid.createEl('button', {
-				cls: `ft-swatch ft-swatch--white${isSelected ? ' is-selected' : ''}`,
-				attr: { type: 'button', 'aria-label': 'White', 'aria-pressed': String(isSelected), title: 'White' },
-			});
-			white.addEventListener('click', () => onSelect({ kind: 'custom', hex: '#FFFFFF', ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) }, true));
-		}
-
-		const custom = controlsHost.createDiv('ft-custom-control');
-		const customOpen = selected?.kind === 'custom' && selected.hex !== '#FFFFFF' && autoOpenCustom;
-		const trigger = custom.createEl('button', {
-			cls: `ft-custom-trigger${selected?.kind === 'custom' ? ' is-selected' : ''}`,
-			attr: { type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': String(customOpen) },
-		});
-		const triggerDot = trigger.createSpan('ft-custom-trigger__dot');
-		const triggerLabel = trigger.createSpan({
-			text: selected?.kind === 'custom' ? `Custom ${selected.hex}` : 'Custom…',
-			cls: 'ft-custom-trigger__label',
-		});
-		if (selected?.kind === 'custom') triggerDot.style.setProperty('--ft-custom-color', selected.hex);
-		const popover = custom.createDiv('ft-custom-popover');
-		popover.hidden = !customOpen;
-		popover.setAttribute('role', 'dialog');
-		popover.setAttribute('aria-label', 'Custom color');
-		const popoverHeader = popover.createDiv('ft-custom-popover__header');
-		popoverHeader.createSpan({ text: 'Custom color' });
-		const close = popoverHeader.createEl('button', {
-			cls: 'clickable-icon',
-			attr: { type: 'button', 'aria-label': 'Close custom color picker' },
-		});
-		setIcon(close, 'x');
-		const controls = popover.createDiv('ft-custom-popover__controls');
-		const color = controls.createEl('input', { attr: { type: 'color', 'aria-label': 'Choose a custom color' } });
-		color.value = selected?.kind === 'custom' ? selected.hex : '#3498DB';
-		const field = controls.createDiv('ft-custom-color__field');
-		const text = field.createEl('input', { attr: { type: 'text', 'aria-label': 'Custom hex color', autocomplete: 'off', spellcheck: 'false' } });
-		text.value = color.value.toUpperCase();
-		const error = field.createDiv({ text: 'Enter a 3- or 6-digit hex color.', cls: 'ft-field-error', attr: { role: 'status' } });
-		let currentHex = color.value.toUpperCase();
-		const selectCustom = (): void => {
-			const choice: ColorChoice = { kind: 'custom', hex: currentHex, ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) };
-			trigger.addClass('is-selected');
-			triggerLabel.setText(`Custom ${currentHex}`);
-			triggerDot.style.setProperty('--ft-custom-color', currentHex);
-			for (const swatch of grid.querySelectorAll<HTMLElement>('.ft-swatch.is-selected')) {
-				swatch.removeClass('is-selected');
-				swatch.setAttribute('aria-pressed', 'false');
-			}
-			onSelect(choice, selected === undefined || selected.kind === 'none');
-		};
-		const commit = (value: string): void => {
-			const hex = normalizeHex(value);
-			text.toggleAttribute('aria-invalid', !hex);
-			error.classList.toggle('is-visible', !hex);
-			if (!hex) return;
-			color.value = hex;
-			currentHex = hex;
-			selectCustom();
-		};
-		color.addEventListener('input', () => { text.value = color.value.toUpperCase(); commit(color.value); });
-		text.addEventListener('input', () => commit(text.value));
-		if (selected && selected.kind !== 'none') {
-			const strengthControl = controlsHost.createDiv('ft-color-strength');
-			const strengthLabel = strengthControl.createEl('label', { text: 'Color strength' });
-			const currentStrength = selected.strength ?? defaultStrength;
-			const strengthActions = strengthLabel.createSpan('ft-color-strength__actions');
-			const reset = strengthActions.createEl('button', {
-				cls: 'clickable-icon ft-color-strength__reset',
-				attr: { type: 'button', 'aria-label': 'Reset color strength to default', title: 'Reset color strength to default' },
-			});
-			setIcon(reset, 'rotate-ccw');
-			reset.disabled = selected.strength === undefined;
-			const strengthValue = strengthActions.createSpan({ text: `${currentStrength}%`, cls: 'ft-color-strength__value' });
-			const strength = strengthControl.createEl('input', {
-				attr: { type: 'range', min: '0', max: '100', step: '1', value: String(currentStrength), 'aria-label': 'Color strength' },
-			});
-			strength.addEventListener('input', () => {
-				const value = Number(strength.value);
-				strengthValue.setText(`${value}%`);
-				onSelect({ ...selected, strength: value }, false);
-			});
-			reset.addEventListener('click', () => {
-				const { strength: _strength, ...defaultChoice } = selected;
-				onSelect(defaultChoice, true);
-			});
-		}
-		const setOpen = (open: boolean, restoreFocus = false): void => {
-			popover.hidden = !open;
-			trigger.setAttribute('aria-expanded', String(open));
-			if (open) text.focus();
-			else if (restoreFocus) trigger.focus();
-		};
-		trigger.addEventListener('click', () => setOpen(popover.hidden));
-		close.addEventListener('click', () => setOpen(false, true));
-		popover.addEventListener('keydown', (event) => {
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				setOpen(false, true);
-			}
-		});
-		const ownerDocument = container.ownerDocument;
-		const onDocumentPointer = (event: PointerEvent): void => {
-			if (!custom.contains(event.target as Node)) setOpen(false);
-		};
-		ownerDocument.addEventListener('pointerdown', onDocumentPointer, true);
-		this.pickerCleanups.push(() => ownerDocument.removeEventListener('pointerdown', onDocumentPointer, true));
+	private clearButton(container: HTMLElement, label: string, disabled: boolean, onClick: () => void): void {
+		const button = container.createEl('button', { text: label, cls: 'ft-clear-override', attr: { type: 'button' } });
+		button.disabled = disabled;
+		button.addEventListener('click', onClick);
 	}
 
 	private clearPickerListeners(): void {
-		for (const cleanup of this.pickerCleanups) cleanup();
-		this.pickerCleanups = [];
+		this.controls.dispose();
 	}
 
 	private choiceButton(container: HTMLElement, label: string, selected: boolean, onClick: () => void): void {
-		const button = container.createEl('button', { text: label, cls: selected ? 'is-selected' : '', attr: { type: 'button', 'aria-pressed': String(selected) } });
-		button.addEventListener('click', onClick);
+		this.controls.choiceButton(container, label, selected, onClick);
 	}
 }

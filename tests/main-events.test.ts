@@ -34,4 +34,28 @@ describe('workspace refresh events', () => {
 		expect(explorerReconcile).toHaveBeenCalledOnce();
 		expect(tabReconcile).toHaveBeenCalledOnce();
 	});
+
+	describe("conditional rule ordering", () => {
+		it("moves a rule without changing its id and persists once", async () => {
+			const persist = vi.fn().mockResolvedValue(undefined);
+			const plugin = Object.create(FolderToolkitPlugin.prototype) as FolderToolkitPlugin;
+			const conditionalFormats = [
+				{ id: "a", target: "folder" as const, match: "equals" as const, pattern: "a", color: { kind: "custom" as const, hex: "#111111" } },
+				{ id: "b", target: "folder" as const, match: "equals" as const, pattern: "b", color: { kind: "custom" as const, hex: "#222222" } },
+			];
+			Object.assign(plugin, { settings: { conditionalFormats }, persist });
+			await plugin.moveConditionalFormat("b", -1);
+			expect(conditionalFormats.map((rule) => rule.id)).toEqual(["b", "a"]);
+			expect(persist).toHaveBeenCalledOnce();
+		});
+
+		it("does not persist unavailable moves", async () => {
+			const persist = vi.fn().mockResolvedValue(undefined);
+			const plugin = Object.create(FolderToolkitPlugin.prototype) as FolderToolkitPlugin;
+			Object.assign(plugin, { settings: { conditionalFormats: [] }, persist });
+			await plugin.moveConditionalFormat("missing", 1);
+			expect(persist).not.toHaveBeenCalled();
+		});
+	});
+
 });

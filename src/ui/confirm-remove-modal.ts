@@ -1,24 +1,35 @@
 import { Modal, type App } from 'obsidian';
 
+export interface ConfirmRemoveCopy {
+	title: string;
+	description: string;
+	confirmLabel: string;
+}
+
 export class ConfirmRemoveModal extends Modal {
 	constructor(
 		app: App,
 		private readonly path: string,
 		private readonly onConfirm: () => Promise<void>,
+		private readonly copy: ConfirmRemoveCopy = {
+			title: 'Remove appearance rule?',
+			description: 'This removes the saved appearance rule. The file or folder itself is not changed.',
+			confirmLabel: 'Remove rule',
+		},
 	) {
 		super(app);
 	}
 
 	onOpen(): void {
-		this.setTitle('Remove color rule?');
+		this.setTitle(this.copy.title);
 		this.contentEl.addClass('ft-confirm-modal');
-		this.contentEl.createEl('p', { text: 'This removes the saved color rule. The file or folder itself is not changed.' });
+		this.contentEl.createEl('p', { text: this.copy.description });
 		this.contentEl.createDiv({ text: this.path, cls: 'ft-confirm-modal__path' });
 		const error = this.contentEl.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
 		const actions = this.contentEl.createDiv('ft-confirm-modal__actions');
 		const cancel = actions.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
 		cancel.addEventListener('click', () => this.close());
-		const remove = actions.createEl('button', { text: 'Remove rule', cls: 'mod-warning', attr: { type: 'button' } });
+		const remove = actions.createEl('button', { text: this.copy.confirmLabel, cls: 'mod-warning', attr: { type: 'button' } });
 		remove.addEventListener('click', () => { void this.remove(remove, cancel, error); });
 	}
 

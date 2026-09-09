@@ -1,5 +1,6 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
+import { AppearanceControlRenderer } from './appearance-controls';
 import { isBackgroundEnabled, isFontEnabled } from '../conditional-format';
 import type FolderToolkitPlugin from '../main';
 import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget } from '../types';
@@ -9,6 +10,8 @@ import { replaceOwnedRoot } from './dom-lifecycle';
 
 export class FolderToolkitSettingTab extends PluginSettingTab {
 	private search = '';
+	private readonly expandedConditionalIds = new Set<string>();
+	private pendingConditionalFocusId: string | null = null;
 
 	constructor(private readonly toolkit: FolderToolkitPlugin) {
 		super(toolkit.app, toolkit);
@@ -16,6 +19,12 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
+			{
+				name: 'Appearance',
+				desc: 'Choose the shared palette and how styling carries into open note tabs.',
+				aliases: ['colors', 'style'],
+				render: (setting) => { setting.setName('Appearance').setHeading(); },
+			},
 			{
 				name: 'Color palette',
 				desc: 'Changing the template recolors palette assignments. Custom colors stay unchanged.',
@@ -30,9 +39,15 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			},
 			{
 				name: 'Conditional formatting',
-				desc: 'Color the font or background of files and folders whose names match reusable rules.',
+				desc: 'Style matching file and folder names with the same text and background controls used for direct editing.',
 				aliases: ['name rules', 'starts with', 'folder shading', 'file shading'],
 				render: (setting) => this.renderConditionalFormats(setting),
+			},
+			{
+				name: 'Visibility',
+				desc: 'Reveal or manage items hidden by Folder Toolkit.',
+				aliases: ['hidden', 'files', 'folders'],
+				render: (setting) => { setting.setName('Visibility').setHeading(); },
 			},
 			{
 				name: 'Show hidden items',
@@ -42,7 +57,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			},
 			{
 				name: 'Managed paths',
-				desc: 'Search, edit, and remove saved color and hiding rules.',
+				desc: 'Search, edit, and remove saved appearance and hiding rules.',
 				aliases: ['appearance rules', 'hidden paths', 'files', 'folders'],
 				render: (setting) => this.renderPathManager(setting),
 			},
@@ -151,234 +166,185 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 	}
 
 	private renderConditionalFormats(setting: Setting): () => void {
-		setting.setName('Conditional formatting').setHeading();
+		setting.setName('Name rules').setHeading();
 		setting.settingEl.addClass('ft-conditional-setting');
 		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-conditional-formats');
-		wrapper.createDiv({ text: 'Rules match the item name, not its full path. Later matching rules win per format.', cls: 'ft-card-hint' });
-		const add = wrapper.createEl('button', {
-			cls: 'ft-conditional-add',
-			attr: { type: 'button', 'aria-label': 'Add conditional formatting rule' },
-		});
+		const controls = new AppearanceControlRenderer(this.toolkit);
+		wrapper.createDiv({ text: 'Style files and folders by name. When rules overlap, the later rule wins for each style.', cls: 'ft-card-hint' });
+		const add = wrapper.createEl('button', { cls: 'ft-conditional-add', attr: { type: 'button', 'aria-label': 'Add conditional formatting rule' } });
 		setIcon(add, 'plus');
 		add.createSpan({ text: 'Add rule' });
 		add.addEventListener('click', () => {
-			void this.toolkit.addConditionalFormat().then(() => this.update());
+			void this.toolkit.addConditionalFormat().then((id) => {
+				this.expandedConditionalIds.add(id);
+				this.pendingConditionalFocusId = id;
+				this.update();
+			});
 		});
 
 		if (this.toolkit.settings.conditionalFormats.length === 0) {
-			wrapper.createDiv({ text: 'No conditional formatting rules yet.', cls: 'ft-empty-state' });
+			wrapper.createDiv({ text: 'No name rules yet. Add a rule to style matching files or folders.', cls: 'ft-empty-state' });
 		}
 
-		for (const rule of this.toolkit.settings.conditionalFormats) {
-			const card = wrapper.createDiv('ft-conditional-card');
-			const save = (): void => {
-				void this.toolkit.updateConditionalFormat(rule.id, rule);
+		const targetLabels: Record<ConditionalTarget, string> = { folder: 'Folders', file: 'Files', both: 'Files and folders' };
+		const matchLabels: Record<ConditionalMatch, string> = { equals: 'is exactly', startsWith: 'starts with', endsWith: 'ends with', contains: 'contains' };
+		for (const [index, rule] of this.toolkit.settings.conditionalFormats.entries()) {
+			const expanded = this.expandedConditionalIds.has(rule.id);
+			const card = wrapper.createDiv(`ft-conditional-card${expanded ? ' is-expanded' : ''}`);
+			const header = card.createDiv('ft-conditional-summary-row');
+			const disclosure = header.createEl('button', {
+				cls: 'ft-conditional-disclosure',
+				attr: { type: 'button', 'aria-expanded': String(expanded), 'aria-controls': `ft-rule-editor-${rule.id}` },
+			});
+			const summary = disclosure.createSpan('ft-conditional-summary');
+			summary.createSpan({ text: targetLabels[rule.target], cls: 'ft-conditional-summary__target' });
+			summary.createSpan({ text: matchLabels[rule.match], cls: 'ft-conditional-summary__match' });
+			summary.createSpan({ text: rule.pattern || 'Unnamed rule', cls: `ft-conditional-summary__pattern${rule.pattern ? '' : ' is-empty'}` });
+			const badges = summary.createSpan('ft-conditional-summary__badges');
+			if (isFontEnabled(rule)) this.renderStyleBadge(badges, 'Font', rule.color);
+			if (isBackgroundEnabled(rule)) this.renderStyleBadge(badges, 'Background', rule.backgroundColor ?? rule.color);
+			if (rule.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
+			if (rule.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
+			const chevron = disclosure.createSpan('ft-conditional-disclosure__chevron');
+			setIcon(chevron, expanded ? 'chevron-up' : 'chevron-down');
+			disclosure.addEventListener('click', () => {
+				if (expanded) this.expandedConditionalIds.delete(rule.id);
+				else this.expandedConditionalIds.add(rule.id);
+				this.update();
+			});
+
+			const actions = header.createDiv('ft-conditional-actions');
+			const moveUp = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Move ${rule.pattern || 'unnamed rule'} up`, title: 'Move up' } });
+			setIcon(moveUp, 'arrow-up');
+			moveUp.disabled = index === 0;
+			moveUp.addEventListener('click', () => { void this.toolkit.moveConditionalFormat(rule.id, -1).then(() => this.update()); });
+			const moveDown = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Move ${rule.pattern || 'unnamed rule'} down`, title: 'Move down' } });
+			setIcon(moveDown, 'arrow-down');
+			moveDown.disabled = index === this.toolkit.settings.conditionalFormats.length - 1;
+			moveDown.addEventListener('click', () => { void this.toolkit.moveConditionalFormat(rule.id, 1).then(() => this.update()); });
+			const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove rule for ${rule.pattern || 'unnamed pattern'}` } });
+			setIcon(remove, 'trash-2');
+			remove.addEventListener('click', () => {
+				new ConfirmRemoveModal(this.toolkit.app, rule.pattern || 'Unnamed rule', async () => {
+					await this.toolkit.removeConditionalFormat(rule.id);
+					this.expandedConditionalIds.delete(rule.id);
+					this.update();
+				}, {
+					title: 'Remove name rule?',
+					description: 'This removes the conditional formatting rule. Files and folders are not changed.',
+					confirmLabel: 'Remove rule',
+				}).open();
+			});
+			if (!expanded) continue;
+
+			const editor = card.createDiv({ cls: 'ft-conditional-editor', attr: { id: `ft-rule-editor-${rule.id}` } });
+			const error = editor.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
+			const save = async (rerender = false): Promise<void> => {
+				try {
+					await this.toolkit.updateConditionalFormat(rule.id, rule);
+					if (rerender) this.update();
+				} catch {
+					error.setText('This rule could not be saved. Try again.');
+					error.addClass('is-visible');
+				}
 			};
-
-			const metaRow = card.createDiv('ft-conditional-meta-row');
-
-			const targetLabel = metaRow.createEl('label', { text: 'Apply to' });
-			const target = metaRow.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
-			for (const [value, label] of [
-				['folder', 'Folders'],
-				['file', 'Files'],
-				['both', 'Files and folders'],
-			] as const) target.createEl('option', { text: label, value });
+			const meta = editor.createDiv('ft-conditional-meta-row');
+			const targetLabel = meta.createEl('label', { text: 'Apply to' });
+			const target = targetLabel.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
+			for (const [value, label] of Object.entries(targetLabels)) target.createEl('option', { text: label, value });
 			target.value = rule.target;
-			targetLabel.append(target);
-			target.addEventListener('change', () => {
-				rule.target = target.value as ConditionalTarget;
-				save();
-			});
-
-			const matchLabel = metaRow.createEl('label', { text: 'Name' });
-			const match = metaRow.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
-			for (const [value, label] of [
-				['equals', 'Is exactly'],
-				['startsWith', 'Starts with'],
-				['endsWith', 'Ends with'],
-				['contains', 'Contains'],
-			] as const) match.createEl('option', { text: label, value });
+			target.addEventListener('change', () => { rule.target = target.value as ConditionalTarget; void save(true); });
+			const matchLabel = meta.createEl('label', { text: 'Name' });
+			const match = matchLabel.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
+			for (const [value, label] of Object.entries(matchLabels)) match.createEl('option', { text: label.charAt(0).toUpperCase() + label.slice(1), value });
 			match.value = rule.match;
-			matchLabel.append(match);
-			match.addEventListener('change', () => {
-				rule.match = match.value as ConditionalMatch;
-				save();
-			});
-
-			const patternLabel = metaRow.createEl('label', { text: 'Pattern' });
-			const pattern = metaRow.createEl('input', {
+			match.addEventListener('change', () => { rule.match = match.value as ConditionalMatch; void save(true); });
+			const patternErrorId = `ft-rule-pattern-error-${index}`;
+			const patternLabel = meta.createEl('label', { text: 'Pattern' });
+			const pattern = patternLabel.createEl('input', {
 				type: 'text',
 				value: rule.pattern,
 				placeholder: '__system',
-				attr: { 'aria-label': 'Name pattern', spellcheck: 'false' },
+				attr: { 'aria-label': 'Name pattern', 'aria-describedby': patternErrorId, spellcheck: 'false' },
 			});
-			patternLabel.append(pattern);
-			pattern.addEventListener('change', () => { rule.pattern = pattern.value; save(); });
+			const patternError = patternLabel.createSpan({
+				text: 'Enter a name pattern. Empty rules are ignored.',
+				cls: 'ft-field-error',
+				attr: { id: patternErrorId },
+			});
+			const validatePattern = (): boolean => {
+				const invalid = pattern.value.trim().length === 0;
+				pattern.toggleClass('is-invalid', invalid);
+				pattern.toggleAttribute('aria-invalid', invalid);
+				patternError.toggleClass('is-visible', invalid);
+				return !invalid;
+			};
+			validatePattern();
+			pattern.addEventListener('input', validatePattern);
+			pattern.addEventListener('change', () => { rule.pattern = pattern.value; void save(true); });
+			if (this.pendingConditionalFocusId === rule.id) {
+				this.pendingConditionalFocusId = null;
+				window.requestAnimationFrame(() => pattern.focus());
+			}
 
-			const remove = metaRow.createEl('button', {
-				cls: 'clickable-icon ft-conditional-remove',
-				attr: { type: 'button', 'aria-label': `Remove rule for ${rule.pattern || 'unnamed pattern'}` },
-			});
-			setIcon(remove, 'trash-2');
-			remove.addEventListener('click', () => {
-				void this.toolkit.removeConditionalFormat(rule.id).then(() => this.update());
-			});
-
-			const controlsRow = card.createDiv('ft-conditional-controls-row');
-
-			// Font channel
-			const fontChannel = controlsRow.createDiv('ft-conditional-channel');
-			const fontHeader = fontChannel.createDiv('ft-conditional-channel-header');
-			const fontCheck = fontHeader.createEl('input', {
-				type: 'checkbox',
-				attr: { id: `ft-font-check-${rule.id}` },
-			});
+			const styleGrid = editor.createDiv('ft-shared-style-grid');
+			const textCard = styleGrid.createDiv('ft-color-card ft-color-card--text');
+			const textHeader = textCard.createDiv('ft-color-card__header');
+			textHeader.createDiv({ text: 'Text', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
+			const fontToggle = textHeader.createEl('label', { cls: 'ft-border-toggle' });
+			const fontCheck = fontToggle.createEl('input', { attr: { type: 'checkbox' } });
 			fontCheck.checked = isFontEnabled(rule);
-			fontHeader.createEl('label', {
-				text: 'Font',
-				attr: { for: `ft-font-check-${rule.id}` },
-				cls: 'ft-conditional-channel-title',
+			fontToggle.createSpan({ text: 'Font color' });
+			fontCheck.addEventListener('change', () => { rule.fontEnabled = fontCheck.checked; void save(true); });
+			controls.renderColorControls(textCard, {
+				selected: rule.color,
+				defaultStrength: 100,
+				includeWhite: true,
+				disabled: !fontCheck.checked,
+				onSelect: (choice, rerender) => {
+					if (!choice || choice.kind === 'none') return;
+					rule.color = choice;
+					void save(rerender);
+				},
+			});
+			controls.renderTypography(textCard, rule.bold === true, rule.strikethrough === true, (bold, strikethrough) => {
+				rule.bold = bold;
+				rule.strikethrough = strikethrough;
+				void save(true);
 			});
 
-			const fontInputs = fontChannel.createDiv('ft-conditional-channel-inputs');
-			const fontResolved = resolveChoice(rule.color, this.toolkit.settings.paletteTemplateId);
-			const fontColor = fontInputs.createEl('input', {
-				type: 'color',
-				value: fontResolved?.hex ?? '#FFFFFF',
-				attr: { 'aria-label': 'Font color' },
-			});
-			fontColor.addEventListener('change', () => {
-				rule.color = { kind: 'custom', hex: fontColor.value, strength: rule.color?.strength ?? 100 };
-				save();
-			});
-
-			const fontSliderWrap = fontInputs.createDiv('ft-conditional-slider-wrap');
-			const fontStrength = fontSliderWrap.createEl('input', {
-				type: 'range',
-				value: String(rule.color?.strength ?? 100),
-				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Font strength' },
-			});
-			const fontStrengthValue = fontSliderWrap.createSpan({ cls: 'ft-conditional-strength' });
-			const updateFontStrength = (): void => {
-				fontStrengthValue.setText(`${fontStrength.value}%`);
-			};
-			updateFontStrength();
-			fontStrength.addEventListener('input', updateFontStrength);
-			fontStrength.addEventListener('change', () => {
-				rule.color = { ...rule.color, strength: Number(fontStrength.value) };
-				save();
-			});
-
-			const syncFontDisabled = (): void => {
-				fontInputs.classList.toggle('is-disabled', !fontCheck.checked);
-				fontColor.disabled = !fontCheck.checked;
-				fontStrength.disabled = !fontCheck.checked;
-			};
-			syncFontDisabled();
-			fontCheck.addEventListener('change', () => {
-				rule.fontEnabled = fontCheck.checked;
-				syncFontDisabled();
-				save();
-			});
-
-			// Background channel
-			const bgChannel = controlsRow.createDiv('ft-conditional-channel');
-			const bgHeader = bgChannel.createDiv('ft-conditional-channel-header');
-			const bgCheck = bgHeader.createEl('input', {
-				type: 'checkbox',
-				attr: { id: `ft-bg-check-${rule.id}` },
-			});
-			bgCheck.checked = isBackgroundEnabled(rule);
-			bgHeader.createEl('label', {
-				text: 'Background',
-				attr: { for: `ft-bg-check-${rule.id}` },
-				cls: 'ft-conditional-channel-title',
-			});
-
-			const bgChoice = rule.backgroundColor ?? { kind: 'custom', hex: '#A8ADB5', strength: 20 };
-			const bgResolved = resolveChoice(bgChoice, this.toolkit.settings.paletteTemplateId);
-			const bgInputs = bgChannel.createDiv('ft-conditional-channel-inputs');
-			const bgColor = bgInputs.createEl('input', {
-				type: 'color',
-				value: bgResolved?.hex ?? '#A8ADB5',
-				attr: { 'aria-label': 'Background color' },
-			});
-			bgColor.addEventListener('change', () => {
-				rule.backgroundColor = { kind: 'custom', hex: bgColor.value, strength: rule.backgroundColor?.strength ?? 20 };
-				save();
-			});
-
-			const bgSliderWrap = bgInputs.createDiv('ft-conditional-slider-wrap');
-			const bgStrength = bgSliderWrap.createEl('input', {
-				type: 'range',
-				value: String(bgChoice.strength ?? 20),
-				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Background strength' },
-			});
-			const bgStrengthValue = bgSliderWrap.createSpan({ cls: 'ft-conditional-strength' });
-			const updateBgStrength = (): void => {
-				bgStrengthValue.setText(`${bgStrength.value}%`);
-			};
-			updateBgStrength();
-			bgStrength.addEventListener('input', updateBgStrength);
-			bgStrength.addEventListener('change', () => {
-				rule.backgroundColor = { ...(rule.backgroundColor ?? bgChoice), strength: Number(bgStrength.value) };
-				save();
-			});
-
-			const syncBgDisabled = (): void => {
-				bgInputs.classList.toggle('is-disabled', !bgCheck.checked);
-				bgColor.disabled = !bgCheck.checked;
-				bgStrength.disabled = !bgCheck.checked;
-			};
-			syncBgDisabled();
-			bgCheck.addEventListener('change', () => {
-				rule.backgroundEnabled = bgCheck.checked;
-				if (!rule.backgroundColor) {
-					rule.backgroundColor = { kind: 'custom', hex: bgColor.value, strength: Number(bgStrength.value) };
-				}
-				syncBgDisabled();
-				save();
-			});
-
-			// Typography toggles (Bold & Strikethrough)
-			const typeGroup = controlsRow.createDiv('ft-conditional-type-group');
-			typeGroup.createSpan({ text: 'Style', cls: 'ft-conditional-channel-title' });
-			const typeButtons = typeGroup.createDiv('ft-conditional-type-buttons');
-
-			const boldBtn = typeButtons.createEl('button', {
-				type: 'button',
-				cls: 'ft-style-toggle',
-				attr: { 'aria-label': 'Bold', 'aria-pressed': String(rule.bold === true) },
-			});
-			boldBtn.createEl('b', { text: 'B' });
-			if (rule.bold) boldBtn.addClass('is-active');
-			boldBtn.addEventListener('click', () => {
-				rule.bold = !rule.bold;
-				boldBtn.toggleClass('is-active', !!rule.bold);
-				boldBtn.setAttribute('aria-pressed', String(rule.bold));
-				save();
-			});
-
-			const strikeBtn = typeButtons.createEl('button', {
-				type: 'button',
-				cls: 'ft-style-toggle',
-				attr: { 'aria-label': 'Strikethrough', 'aria-pressed': String(rule.strikethrough === true) },
-			});
-			strikeBtn.createEl('s', { text: 'S' });
-			if (rule.strikethrough) strikeBtn.addClass('is-active');
-			strikeBtn.addEventListener('click', () => {
-				rule.strikethrough = !rule.strikethrough;
-				strikeBtn.toggleClass('is-active', !!rule.strikethrough);
-				strikeBtn.setAttribute('aria-pressed', String(rule.strikethrough));
-				save();
+			const backgroundCard = styleGrid.createDiv('ft-color-card ft-color-card--background');
+			const backgroundHeader = backgroundCard.createDiv('ft-color-card__header');
+			backgroundHeader.createDiv({ text: 'Background', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
+			const backgroundToggle = backgroundHeader.createEl('label', { cls: 'ft-border-toggle' });
+			const backgroundCheck = backgroundToggle.createEl('input', { attr: { type: 'checkbox' } });
+			backgroundCheck.checked = isBackgroundEnabled(rule);
+			backgroundToggle.createSpan({ text: 'Enable background' });
+			backgroundCheck.addEventListener('change', () => { rule.backgroundEnabled = backgroundCheck.checked; void save(true); });
+			const backgroundChoice = rule.backgroundColor ?? { kind: 'custom' as const, hex: '#A8ADB5', strength: 20 };
+			controls.renderColorControls(backgroundCard, {
+				selected: backgroundChoice,
+				defaultStrength: 20,
+				disabled: !backgroundCheck.checked,
+				onSelect: (choice, rerender) => {
+					if (!choice || choice.kind === 'none') return;
+					rule.backgroundColor = choice;
+					void save(rerender);
+				},
 			});
 		}
 
 		return () => {
+			controls.dispose();
 			wrapper.remove();
 			setting.settingEl.removeClass('ft-conditional-setting');
 		};
+	}
+
+	private renderStyleBadge(container: HTMLElement, label: string, choice: ColorChoice): void {
+		const resolved = resolveChoice(choice, this.toolkit.settings.paletteTemplateId);
+		const badge = container.createSpan({ text: label, cls: 'ft-style-badge' });
+		if (resolved) badge.style.setProperty('--ft-rule-color', resolved.hex);
 	}
 
 	private renderHiddenToggle(setting: Setting): void {
@@ -421,9 +387,9 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 
 	private renderAppearanceRules(container: HTMLElement): void {
 		const paths = Object.keys(this.toolkit.settings.appearanceRules).filter((path) => this.matches(path)).sort();
-		const section = this.ruleSection(container, 'Color rules', paths.length);
+		const section = this.ruleSection(container, 'Appearance rules', paths.length);
 		if (paths.length === 0) {
-			this.emptyState(section, this.search ? 'No color rules match this search.' : 'No color rules yet. Right-click a file or folder and choose Edit colors.');
+			this.emptyState(section, this.search ? 'No appearance rules match this search.' : 'No appearance rules yet. Right-click a file or folder and choose Edit appearance.');
 			return;
 		}
 		for (const path of paths) this.renderAppearanceCard(section, path, this.toolkit.settings.appearanceRules[path]);
@@ -436,17 +402,19 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		identity.createDiv({ text: name, cls: 'ft-rule-card__name' });
 		identity.createDiv({ text: parent, cls: 'ft-rule-card__path' });
 		const previews = card.createDiv('ft-rule-card__previews');
-		this.renderEffectPreview(previews, 'Text', rule.text?.choice);
+		this.renderEffectPreview(previews, 'Text', rule.text?.color);
 		this.renderEffectPreview(previews, 'Background', rule.background?.choice);
 		this.renderEffectPreview(previews, 'Border', rule.border?.color);
+		const textStyles = [rule.text?.bold ? 'Bold' : null, rule.text?.strikethrough ? 'Strikethrough' : null].filter((style): style is string => style !== null);
+		if (textStyles.length > 0) previews.createDiv({ text: `Text style: ${textStyles.join(' · ')}`, cls: 'ft-rule-preview' });
 
 		const actions = card.createDiv('ft-rule-card__actions');
 		const exists = this.toolkit.app.vault.getAbstractFileByPath(path) !== null;
 		const edit = actions.createEl('button', { text: 'Edit', attr: { type: 'button' } });
 		edit.disabled = !exists;
-		edit.title = exists ? `Edit colors for ${name}` : 'This path no longer exists';
+		edit.title = exists ? `Edit appearance for ${name}` : 'This path no longer exists';
 		edit.addEventListener('click', () => new AppearanceModal(this.toolkit, path, () => this.update()).open());
-		const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove color rule for ${name}` } });
+		const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove appearance rule for ${name}` } });
 		setIcon(remove, 'trash-2');
 		remove.addEventListener('click', () => {
 			new ConfirmRemoveModal(this.toolkit.app, path, async () => {

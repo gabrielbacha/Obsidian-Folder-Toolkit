@@ -50,14 +50,12 @@ export function conditionalStylesFor(
 	path: string,
 	isFolder: boolean,
 	settings: FolderToolkitSettings,
-): { bold: boolean; strikethrough: boolean } {
-	let bold = false;
-	let strikethrough = false;
+): { bold: boolean; strikethrough: boolean } | undefined {
+	let matched: { bold: boolean; strikethrough: boolean } | undefined;
 	for (const rule of settings.conditionalFormats) {
 		if (matchesConditionalFormat(path, isFolder, rule)) {
-			if (rule.bold) bold = true;
-			if (rule.strikethrough) strikethrough = true;
+			matched = { bold: rule.bold === true, strikethrough: rule.strikethrough === true };
 		}
 	}
-	return { bold, strikethrough };
+	return matched;
 }

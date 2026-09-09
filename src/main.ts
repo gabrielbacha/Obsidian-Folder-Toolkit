@@ -105,9 +105,10 @@ export default class FolderToolkitPlugin extends Plugin {
 		await this.persist();
 	}
 
-	async addConditionalFormat(): Promise<void> {
+	async addConditionalFormat(): Promise<string> {
+		const id = `conditional-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		this.settings.conditionalFormats.push({
-			id: `conditional-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+			id,
 			target: 'folder',
 			match: 'equals',
 			pattern: '',
@@ -119,6 +120,7 @@ export default class FolderToolkitPlugin extends Plugin {
 			strikethrough: false,
 		});
 		await this.persist();
+		return id;
 	}
 
 	async updateConditionalFormat(id: string, rule: ConditionalFormatRule): Promise<void> {
@@ -128,6 +130,15 @@ export default class FolderToolkitPlugin extends Plugin {
 		await this.persist();
 	}
 
+	async moveConditionalFormat(id: string, direction: -1 | 1): Promise<void> {
+		const index = this.settings.conditionalFormats.findIndex((rule) => rule.id === id);
+		const target = index + direction;
+		if (index < 0 || target < 0 || target >= this.settings.conditionalFormats.length) return;
+		const [rule] = this.settings.conditionalFormats.splice(index, 1);
+		if (!rule) return;
+		this.settings.conditionalFormats.splice(target, 0, rule);
+		await this.persist();
+	}
 	async removeConditionalFormat(id: string): Promise<void> {
 		this.settings.conditionalFormats = this.settings.conditionalFormats.filter((rule) => rule.id !== id);
 		await this.persist();
@@ -152,7 +163,7 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	private addFileMenu(menu: Menu, file: TAbstractFile): void {
 		menu.addItem((item) => item
-			.setTitle(`Edit ${file instanceof TFolder ? 'folder' : 'file'} colors…`)
+			.setTitle(`Edit ${file instanceof TFolder ? 'folder' : 'file'} appearance…`)
 			.setIcon('palette')
 			.onClick(() => new AppearanceModal(this, file.path).open()));
 

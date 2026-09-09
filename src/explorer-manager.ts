@@ -1,5 +1,5 @@
 import type { App } from 'obsidian';
-import { hasDirectColor, resolveAppearance } from './appearance-resolver';
+import { hasDirectAppearance, resolveAppearance } from './appearance-resolver';
 import { conditionalEffectFor } from './conditional-format';
 import { syncClass, syncStyle } from './dom-sync';
 import { focusRelation, hiddenBy } from './visibility';
@@ -125,7 +125,7 @@ export class ExplorerManager {
 		const directBackgroundBlocks = hasDirectBackground && directBackground.choice.kind === 'none';
 		const directBackgroundCascades = isFolder && directBackground?.cascade === true;
 
-		syncClass(row, 'ft-direct-color-rule', hasDirectColor(settings.appearanceRules[path]));
+		syncClass(row, 'ft-direct-color-rule', hasDirectAppearance(settings.appearanceRules[path]));
 		syncClass(row, 'ft-has-text', hasText);
 		syncClass(row, 'ft-has-background', hasBackground);
 		syncClass(row, 'ft-background-direct', directBackgroundHasColor);

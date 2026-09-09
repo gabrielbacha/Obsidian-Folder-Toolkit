@@ -9,7 +9,7 @@ function settings(): FolderToolkitSettings {
 		paletteTemplateId: 'default',
 		tabStyle: 'background',
 		appearanceRules: {
-			A: { text: { choice: { kind: 'preset', slot: 0 }, cascade: true } },
+			A: { text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true } },
 		},
 		conditionalFormats: [],
 		hiddenPaths: [],
@@ -56,9 +56,23 @@ describe('AppearancePreviewStore', () => {
 	it('clears transient rules with their subtree', () => {
 		const persisted = settings();
 		const previews = new AppearancePreviewStore();
-		previews.set('A/B', { text: { choice: { kind: 'preset', slot: 3 }, cascade: true } });
+		previews.set('A/B', { text: { color: { kind: 'preset', slot: 3 }, bold: false, strikethrough: false, cascade: true } });
 		expect(resolveAppearance('A/B/note.md', { settings: previews.apply(persisted) }).text?.hex).toBe('#2C3E50');
 		previews.clearSubtree('A');
 		expect(previews.apply(persisted)).toBe(persisted);
 	});
+
+	it("previews and removes text typography with the draft", () => {
+		const persisted = settings();
+		const previews = new AppearancePreviewStore();
+		previews.set("A", { text: { bold: true, strikethrough: true, cascade: true } });
+		const previewed = resolveAppearance("A/note.md", { settings: previews.apply(persisted), isFolder: false });
+		expect(previewed.bold).toBe(true);
+		expect(previewed.strikethrough).toBe(true);
+		previews.clear("A");
+		const restored = resolveAppearance("A/note.md", { settings: previews.apply(persisted), isFolder: false });
+		expect(restored.bold).toBe(false);
+		expect(restored.strikethrough).toBe(false);
+	});
+
 });
