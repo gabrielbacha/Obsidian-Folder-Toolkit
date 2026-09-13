@@ -92,7 +92,8 @@ describe('ExplorerManager', () => {
 		manager.reconcile();
 		const rowFor = (path: string) => root.querySelector<HTMLElement>(`[data-path="${path}"]`)!.parentElement!;
 		expect(rowFor('A').hasClass('ft-focus-ancestor')).toBe(true);
-		expect(rowFor('A').hasClass('ft-border-box')).toBe(false);
+		expect(rowFor('A').hasClass('ft-border-box')).toBe(true);
+		expect(rowFor('A').style.getPropertyValue('--ft-border')).toBe('#3498DB');
 		expect(rowFor('A/B').hasClass('ft-focus-root')).toBe(true);
 		expect(rowFor('Other').hasClass('ft-focus-hidden')).toBe(true);
 		expect(rowFor('A/B/note.md').hasClass('ft-permanent-hidden')).toBe(true);
@@ -101,6 +102,82 @@ describe('ExplorerManager', () => {
 		expect(rowFor('A/B/note.md').style.getPropertyValue('--ft-text-light')).not.toBe('');
 		manager.stop();
 		expect(rowFor('A/B').hasClass('ft-focus-root')).toBe(false);
+	});
+
+	it('changes only visibility and layout classes when focus enters and exits a nested folder', () => {
+		const deepNote = file('A/B/Deep/note.md');
+		const deepFolder = folder('A/B/Deep', [deepNote]);
+		root.querySelector<HTMLElement>('[data-path="A/B"]')!
+			.parentElement!
+			.querySelector<HTMLElement>('.nav-folder-children')!
+			.append(deepFolder);
+		settings.appearanceRules = {
+			A: {
+				text: { color: { kind: 'preset', slot: 0, strength: 80 }, bold: true, strikethrough: false, cascade: true },
+				background: { choice: { kind: 'preset', slot: 1, strength: 30 }, cascade: true },
+				border: { style: 'box', color: { kind: 'preset', slot: 2, strength: 60 }, thickness: 'medium', shading: true },
+				descendants: { enabled: true, style: 'rail', thickness: 'thick', shading: true },
+			},
+			'A/B': {
+				descendants: { enabled: true, style: 'box', thickness: 'thin', shading: true },
+			},
+		};
+		settings.conditionalFormats = [{
+			id: 'focused-note',
+			target: 'file',
+			match: 'equals',
+			pattern: 'note.md',
+			fontEnabled: true,
+			color: { kind: 'custom', hex: '#C8C8C8', strength: 100 },
+			backgroundEnabled: true,
+			backgroundColor: { kind: 'preset', slot: 4, strength: 25 },
+			bold: false,
+			strikethrough: true,
+		}];
+
+		let focusPath: string | null = null;
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => focusPath);
+		manager.syncLeaves();
+		manager.reconcile();
+
+		const rowFor = (path: string) => root.querySelector<HTMLElement>(`[data-path="${path}"]`)!.parentElement!;
+		const appearanceClasses = [
+			'ft-has-text', 'ft-has-background', 'ft-background-direct', 'ft-background-cascade',
+			'ft-background-block', 'ft-background-block-cascade', 'ft-border-box', 'ft-border-rail',
+			'ft-border-shaded', 'ft-direct-color-rule', 'ft-is-bold', 'ft-is-strikethrough',
+		];
+		const appearanceProperties = [
+			'--ft-text-light', '--ft-text-dark', '--ft-background', '--ft-border', '--ft-border-width',
+			'--ft-text-strength', '--ft-background-strength', '--ft-background-hover-strength', '--ft-border-strength',
+		];
+		const snapshot = (row: HTMLElement) => ({
+			classes: Object.fromEntries(appearanceClasses.map((name) => [name, row.hasClass(name)])),
+			properties: Object.fromEntries(appearanceProperties.map((name) => [name, row.style.getPropertyValue(name)])),
+		});
+		const paths = ['A', 'A/B', 'A/B/Deep', 'A/B/Deep/note.md', 'Other'];
+		const before = new Map(paths.map((path) => [path, snapshot(rowFor(path))]));
+
+		focusPath = 'A/B/Deep';
+		manager.reconcile();
+		for (const path of paths) expect(snapshot(rowFor(path))).toEqual(before.get(path));
+		expect(rowFor('A').hasClass('ft-focus-ancestor')).toBe(true);
+		expect(rowFor('A/B').hasClass('ft-focus-ancestor')).toBe(true);
+		expect(rowFor('A/B/Deep').hasClass('ft-focus-root')).toBe(true);
+		expect(rowFor('Other').hasClass('ft-focus-hidden')).toBe(true);
+		expect(rowFor('A').hasClass('ft-border-box')).toBe(true);
+		expect(rowFor('A/B').hasClass('ft-border-rail')).toBe(true);
+		expect(rowFor('A/B/Deep').hasClass('ft-border-box')).toBe(true);
+		expect(rowFor('A/B/Deep/note.md').hasClass('ft-is-strikethrough')).toBe(true);
+
+		focusPath = null;
+		manager.reconcile();
+		for (const path of paths) expect(snapshot(rowFor(path))).toEqual(before.get(path));
+		for (const path of paths) {
+			expect(rowFor(path).hasClass('ft-focus-ancestor')).toBe(false);
+			expect(rowFor(path).hasClass('ft-focus-root')).toBe(false);
+			expect(rowFor(path).hasClass('ft-focus-hidden')).toBe(false);
+		}
+		manager.stop();
 	});
 
 	it('reconciles rows inserted after startup', async () => {

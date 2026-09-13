@@ -133,7 +133,7 @@ export class ExplorerManager {
 		syncClass(row, 'ft-background-block', directBackgroundBlocks);
 		syncClass(row, 'ft-background-block-cascade', directBackgroundBlocks && directBackgroundCascades);
 
-		if (appearance.border && row.classList.contains('nav-folder') && relation !== 'ancestor') {
+		if (appearance.border && row.classList.contains('nav-folder')) {
 			syncClass(row, 'ft-border-box', appearance.border.style === 'box');
 			syncClass(row, 'ft-border-rail', appearance.border.style === 'rail');
 			syncStyle(row.style, '--ft-border', appearance.border.color.hex);
