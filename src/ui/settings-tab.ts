@@ -7,6 +7,7 @@ import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget }
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
+import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, WEBSITE_URL } from '../external-links';
 
 export class FolderToolkitSettingTab extends PluginSettingTab {
 	private search = '';
@@ -19,6 +20,22 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
+			{
+				name: ABOUT_AND_FEEDBACK.heading,
+				render: (setting) => { setting.setName(ABOUT_AND_FEEDBACK.heading).setHeading(); },
+			},
+			{
+				name: ABOUT_AND_FEEDBACK.name,
+				desc: ABOUT_AND_FEEDBACK.description,
+				render: (setting) => {
+					setting
+						.setName(ABOUT_AND_FEEDBACK.name)
+						.setDesc(ABOUT_AND_FEEDBACK.description)
+						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.websiteLabel).setCta().onClick(() => openExternalLink(WEBSITE_URL)))
+						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.featureRequestLabel).onClick(() => openExternalLink(FEATURE_REQUEST_URL)))
+						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.bugReportLabel).onClick(() => openExternalLink(BUG_REPORT_URL)));
+				},
+			},
 			{
 				name: 'Appearance',
 				desc: 'Choose the shared palette and how styling carries into open note tabs.',
@@ -475,4 +492,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 	private matches(path: string): boolean {
 		return path.toLocaleLowerCase().includes(this.search.trim().toLocaleLowerCase());
 	}
+}
+
+function openExternalLink(url: string): void {
+	window.open(url, '_blank', 'noopener,noreferrer');
 }
