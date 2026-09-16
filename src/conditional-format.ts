@@ -1,4 +1,4 @@
-import type { ColorChoice, ConditionalFormatRule, EffectRule, FolderToolkitSettings } from './types';
+import type { BorderRule, ColorChoice, ConditionalFormatRule, EffectRule, FolderToolkitSettings } from './types';
 
 function basename(path: string): string {
 	return path.split('/').at(-1) ?? path;
@@ -25,6 +25,22 @@ export function isFontEnabled(rule: ConditionalFormatRule): boolean {
 
 export function isBackgroundEnabled(rule: ConditionalFormatRule): boolean {
 	return rule.backgroundEnabled === true;
+}
+
+export function isBorderEnabled(rule: ConditionalFormatRule): boolean {
+	return rule.borderEnabled === true && rule.border !== undefined;
+}
+
+export function conditionalBorderFor(
+	path: string,
+	isFolder: boolean,
+	settings: FolderToolkitSettings,
+): BorderRule | undefined {
+	let matched: BorderRule | undefined;
+	for (const rule of settings.conditionalFormats) {
+		if (matchesConditionalFormat(path, isFolder, rule) && isBorderEnabled(rule)) matched = rule.border;
+	}
+	return matched;
 }
 
 export function conditionalEffectFor(

@@ -128,13 +128,58 @@ describe('settings normalization', () => {
 				Legacy: { text: { choice: { kind: "custom", hex: "#abc", strength: 55 }, cascade: true } },
 			},
 		});
-		expect(settings.schemaVersion).toBe(5);
+		expect(settings.schemaVersion).toBe(6);
 		expect(settings.appearanceRules.Legacy?.text).toEqual({
 			color: { kind: "custom", hex: "#AABBCC", strength: 55 },
 			bold: false,
 			strikethrough: false,
 			cascade: true,
 		});
+	});
+
+	it('migrates schema-5 file borders and leaves existing conditional borders disabled', () => {
+		const settings = normalizeSettings({
+			schemaVersion: 5,
+			appearanceRules: {
+				'note.md': { border: { style: 'rail', color: { kind: 'custom', hex: '#abc', strength: 55 }, thickness: 'medium' } },
+				'blocked.md': { border: { kind: 'none' } },
+			},
+			conditionalFormats: [{
+				id: 'legacy-file-rule', target: 'file', match: 'endsWith', pattern: '.md',
+				fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' },
+			}],
+		});
+		expect(settings.schemaVersion).toBe(6);
+		expect(settings.appearanceRules['note.md']?.border).toEqual({
+			style: 'rail', color: { kind: 'custom', hex: '#AABBCC', strength: 55 }, thickness: 'medium', shading: false,
+		});
+		expect(settings.appearanceRules['blocked.md']?.border).toEqual({ kind: 'none' });
+		expect(settings.conditionalFormats[0]?.borderEnabled).toBeUndefined();
+		expect(settings.conditionalFormats[0]?.border).toBeUndefined();
+	});
+
+	it('normalizes enabled conditional borders and disables malformed border data', () => {
+		const settings = normalizeSettings({
+			schemaVersion: 6,
+			conditionalFormats: [
+				{
+					id: 'border', target: 'both', match: 'contains', pattern: 'draft',
+					fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' }, borderEnabled: true,
+					border: { style: 'rail', color: { kind: 'custom', hex: 'abc', strength: 110 }, thickness: 'thick' },
+				},
+				{
+					id: 'invalid', target: 'file', match: 'equals', pattern: 'note',
+					fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' }, borderEnabled: true,
+					border: { style: 'circle', color: { kind: 'custom', hex: '#123456' } },
+				},
+			],
+		});
+		expect(settings.conditionalFormats[0]).toMatchObject({
+			borderEnabled: true,
+			border: { style: 'rail', color: { kind: 'custom', hex: '#AABBCC', strength: 100 }, thickness: 'thick' },
+		});
+		expect(settings.conditionalFormats[1]?.borderEnabled).toBe(false);
+		expect(settings.conditionalFormats[1]?.border).toBeUndefined();
 	});
 
 });

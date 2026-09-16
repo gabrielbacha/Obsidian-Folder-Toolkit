@@ -131,6 +131,8 @@ describe('ExplorerManager', () => {
 			color: { kind: 'custom', hex: '#C8C8C8', strength: 100 },
 			backgroundEnabled: true,
 			backgroundColor: { kind: 'preset', slot: 4, strength: 25 },
+			borderEnabled: true,
+			border: { style: 'rail', color: { kind: 'custom', hex: '#C8C8C8', strength: 75 }, thickness: 'medium' },
 			bold: false,
 			strikethrough: true,
 		}];
@@ -168,6 +170,8 @@ describe('ExplorerManager', () => {
 		expect(rowFor('A/B').hasClass('ft-border-rail')).toBe(true);
 		expect(rowFor('A/B/Deep').hasClass('ft-border-box')).toBe(true);
 		expect(rowFor('A/B/Deep/note.md').hasClass('ft-is-strikethrough')).toBe(true);
+		expect(rowFor('A/B/Deep/note.md').hasClass('ft-border-rail')).toBe(true);
+		expect(rowFor('A/B/Deep/note.md').style.getPropertyValue('--ft-border-width')).toBe('4px');
 
 		focusPath = null;
 		manager.reconcile();
@@ -177,6 +181,43 @@ describe('ExplorerManager', () => {
 			expect(rowFor(path).hasClass('ft-focus-root')).toBe(false);
 			expect(rowFor(path).hasClass('ft-focus-hidden')).toBe(false);
 		}
+		manager.stop();
+	});
+
+	it('applies, blocks, and fully removes borders on file rows', () => {
+		settings.showHiddenItems = true;
+		settings.appearanceRules['A/B/note.md'] = {
+			border: { style: 'box', color: { kind: 'custom', hex: '#123456', strength: 68 }, thickness: 'thick' },
+		};
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
+		manager.syncLeaves();
+		manager.reconcile();
+		const row = root.querySelector<HTMLElement>('[data-path="A/B/note.md"]')!.parentElement!;
+		expect(row.hasClass('ft-border-box')).toBe(true);
+		expect(row.style.getPropertyValue('--ft-border')).toBe('#123456');
+		expect(row.style.getPropertyValue('--ft-border-strength')).toBe('68%');
+		expect(row.style.getPropertyValue('--ft-border-width')).toBe('3px');
+
+		settings.appearanceRules['A/B/note.md'] = { border: { kind: 'none' } };
+		settings.conditionalFormats = [{
+			id: 'all-notes', target: 'file', match: 'endsWith', pattern: '.md',
+			fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' }, borderEnabled: true,
+			border: { style: 'rail', color: { kind: 'preset', slot: 2 }, thickness: 'thin' },
+		}];
+		manager.reconcile();
+		expect(row.hasClass('ft-border-box')).toBe(false);
+		expect(row.hasClass('ft-border-rail')).toBe(false);
+		expect(row.style.getPropertyValue('--ft-border')).toBe('');
+
+		delete settings.appearanceRules['A/B/note.md'];
+		manager.reconcile();
+		expect(row.hasClass('ft-border-rail')).toBe(true);
+		expect(row.style.getPropertyValue('--ft-border')).toBe('#8E44AD');
+
+		settings.conditionalFormats[0].borderEnabled = false;
+		manager.reconcile();
+		expect(row.hasClass('ft-border-rail')).toBe(false);
+		expect(row.style.getPropertyValue('--ft-border')).toBe('');
 		manager.stop();
 	});
 

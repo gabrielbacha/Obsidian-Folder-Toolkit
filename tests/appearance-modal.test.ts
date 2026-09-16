@@ -30,7 +30,7 @@ function installDomHelpers(): void {
 
 function harness(folder: boolean) {
 	const settings: FolderToolkitSettings = {
-		schemaVersion: 5,
+		schemaVersion: 6,
 		paletteTemplateId: "default",
 		tabStyle: "off",
 		appearanceRules: {},
@@ -62,6 +62,8 @@ describe("AppearanceModal immediate controls", () => {
 		const { modal, latestDraft } = harness(false);
 		expect(modal.contentEl.classList.contains("ft-appearance-modal--file")).toBe(true);
 		expect(modal.contentEl.textContent).not.toContain("Override text");
+		const headings = [...modal.contentEl.querySelectorAll(".ft-color-card h3")].map((heading) => heading.textContent);
+		expect(headings).toEqual(["Background", "Border", "Text"]);
 		const textCard = modal.contentEl.querySelector<HTMLElement>(".ft-color-card--text")!;
 		expect([...textCard.querySelectorAll<HTMLButtonElement>(".ft-swatch")].every((button) => !button.disabled)).toBe(true);
 		textCard.querySelector<HTMLButtonElement>("button[aria-label=Bold]")!.click();
@@ -73,6 +75,19 @@ describe("AppearanceModal immediate controls", () => {
 		[...refreshedText.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Clear color")!.click();
 		expect(latestDraft().text?.color).toBeUndefined();
 		expect(latestDraft().text?.bold).toBe(true);
+		modal.onClose();
+	});
+
+	it("applies, clears, and explicitly blocks a file border", () => {
+		const { modal, latestDraft } = harness(false);
+		const borderCard = () => [...modal.contentEl.querySelectorAll<HTMLElement>(".ft-color-card")].find((card) => card.querySelector("h3")?.textContent === "Border")!;
+		[...borderCard().querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Vertical rail")!.click();
+		expect(latestDraft().border).toMatchObject({ style: "rail", color: { kind: "preset", slot: 0 }, thickness: "thin" });
+		expect(modal.contentEl.querySelector(".ft-preview-tree .nav-file.ft-preview-border-rail")).not.toBeNull();
+		[...borderCard().querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Clear border")!.click();
+		expect(latestDraft().border).toBeUndefined();
+		[...borderCard().querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "No border")!.click();
+		expect(latestDraft().border).toEqual({ kind: "none" });
 		modal.onClose();
 	});
 
@@ -88,8 +103,7 @@ describe("AppearanceModal immediate controls", () => {
 
 		const borderCard = [...modal.contentEl.querySelectorAll<HTMLElement>(".ft-color-card")].find((card) => card.querySelector("h3")?.textContent === "Border")!;
 		[...borderCard.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Rounded box")!.click();
-		expect(latestDraft().border?.style).toBe("box");
-		expect(latestDraft().border?.color).toEqual({ kind: "preset", slot: 0 });
+		expect(latestDraft().border).toMatchObject({ style: "box", color: { kind: "preset", slot: 0 } });
 		modal.onClose();
 	});
 });

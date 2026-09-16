@@ -34,7 +34,7 @@ function rule(id: string, pattern: string): ConditionalFormatRule {
 }
 
 function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
-	const settings: FolderToolkitSettings = { schemaVersion: 5, paletteTemplateId: "default", tabStyle: "off", appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false };
+	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false };
 	const removeConditionalFormat = vi.fn().mockResolvedValue(undefined);
 	const addConditionalFormat = vi.fn<() => Promise<string>>();
 	const toolkit = Object.assign(Object.create(FolderToolkitPlugin.prototype), {
@@ -79,7 +79,43 @@ describe("name-rule settings UI", () => {
 		expect(expanded.settingEl.querySelectorAll(".ft-conditional-editor")).toHaveLength(2);
 		expect(expanded.settingEl.querySelectorAll(".ft-shared-style-grid")).toHaveLength(2);
 		expect(expanded.settingEl.querySelectorAll(".ft-style-toggle[aria-pressed]")).toHaveLength(4);
+		expect([...expanded.settingEl.querySelectorAll(".ft-color-card--border")]).toHaveLength(2);
+		expect([...expanded.settingEl.querySelectorAll(".ft-shared-style-grid")[0].querySelectorAll(".ft-card-title")].map((heading) => heading.textContent)).toEqual(["Background", "Border", "Text"]);
 		expanded.cleanup?.();
+	});
+
+	it("enables and summarizes a conditional border", () => {
+		const borderRule = rule("border", "archive");
+		borderRule.target = "file";
+		borderRule.borderEnabled = true;
+		borderRule.border = { style: "rail", color: { kind: "custom", hex: "#C8C8C8", strength: 75 }, thickness: "medium" };
+		const { render, tab } = harness([borderRule]);
+		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("border");
+		const view = render();
+		expect(view.settingEl.textContent).toContain("Border · Rail");
+		const borderCard = view.settingEl.querySelector<HTMLElement>(".ft-conditional-editor .ft-color-card--border")!;
+		const toggle = borderCard.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+		expect(toggle.checked).toBe(true);
+		expect([...borderCard.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Medium")?.getAttribute("aria-pressed")).toBe("true");
+		view.cleanup?.();
+	});
+
+	it("activates a remembered border from the conditional editor", async () => {
+		const borderRule = rule("border", "archive");
+		const { render, tab, settings, update } = harness([borderRule]);
+		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("border");
+		const view = render();
+		const borderCard = view.settingEl.querySelector<HTMLElement>(".ft-conditional-editor .ft-color-card--border")!;
+		const toggle = borderCard.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+		expect(toggle.checked).toBe(false);
+		expect(borderCard.querySelector<HTMLButtonElement>(".ft-swatch")?.disabled).toBe(true);
+		toggle.checked = true;
+		toggle.dispatchEvent(new Event("change"));
+		await Promise.resolve();
+		expect(settings.conditionalFormats[0]?.borderEnabled).toBe(true);
+		expect(settings.conditionalFormats[0]?.border).toMatchObject({ style: "box", thickness: "thin" });
+		expect(update).toHaveBeenCalled();
+		view.cleanup?.();
 	});
 
 	it("opens and focuses a newly added rule", async () => {

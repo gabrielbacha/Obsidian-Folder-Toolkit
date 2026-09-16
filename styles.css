@@ -61,6 +61,18 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 	border-radius: var(--radius-s);
 }
 
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-box > .nav-file-title {
+	outline: var(--ft-border-width, 1px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, 42%), transparent);
+	outline-offset: calc(var(--ft-border-width, 1px) * -1);
+	border-radius: var(--radius-s);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-rail > .nav-file-title {
+	box-sizing: border-box;
+	border-inline-start: var(--ft-border-width, 2px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, 55%), transparent);
+	border-radius: var(--radius-s);
+}
+
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-shaded {
 	background-color: color-mix(in srgb, var(--ft-border) 9%, var(--background-secondary));
 }
@@ -238,13 +250,17 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 }
 
 .ft-preview-tree .nav-folder.ft-preview-border-box,
-.ft-preview-tree .nav-folder.ft-preview-border-rail {
+.ft-preview-tree .nav-folder.ft-preview-border-rail,
+.ft-preview-tree .nav-file.ft-preview-border-box,
+.ft-preview-tree .nav-file.ft-preview-border-rail {
 	position: relative;
 	border-radius: var(--radius-s);
 }
 
 .ft-preview-tree .nav-folder.ft-preview-border-box::after,
-.ft-preview-tree .nav-folder.ft-preview-border-rail::after {
+.ft-preview-tree .nav-folder.ft-preview-border-rail::after,
+.ft-preview-tree .nav-file.ft-preview-border-box::after,
+.ft-preview-tree .nav-file.ft-preview-border-rail::after {
 	position: absolute;
 	z-index: 2;
 	inset: 0;
@@ -253,7 +269,8 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 	pointer-events: none;
 }
 
-.ft-preview-tree .nav-folder.ft-preview-border-box::after {
+.ft-preview-tree .nav-folder.ft-preview-border-box::after,
+.ft-preview-tree .nav-file.ft-preview-border-box::after {
 	box-shadow: inset 0 0 0 var(--ft-preview-border-width, 2px) color-mix(in srgb, var(--ft-preview-border) var(--ft-preview-border-strength, 65%), transparent);
 }
 .ft-preview-tree .nav-folder-collapse-indicator.collapse-icon {
@@ -272,7 +289,8 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 	width: 12px;
 	height: 12px;
 }
-.ft-preview-tree .nav-folder.ft-preview-border-rail::after {
+.ft-preview-tree .nav-folder.ft-preview-border-rail::after,
+.ft-preview-tree .nav-file.ft-preview-border-rail::after {
 	box-shadow: inset var(--ft-preview-border-width, 3px) 0 0 color-mix(in srgb, var(--ft-preview-border) var(--ft-preview-border-strength, 75%), transparent);
 }
 

@@ -4,6 +4,7 @@ import {
 	DEFAULT_SETTINGS,
 	SCHEMA_VERSION,
 	type AppearanceRule,
+	type BorderAppearanceRule,
 	type BorderRule,
 	type ColorChoice,
 	type ConditionalFormatRule,
@@ -69,6 +70,11 @@ function normalizeBorder(value: unknown, paletteLength: number): BorderRule | un
 	};
 }
 
+function normalizeBorderAppearance(value: unknown, paletteLength: number): BorderAppearanceRule | undefined {
+	if (isRecord(value) && value.kind === 'none') return { kind: 'none' };
+	return normalizeBorder(value, paletteLength);
+}
+
 function normalizeDescendants(value: unknown): DescendantRule | undefined {
 	if (!isRecord(value)) return undefined;
 	const enabled = value.enabled === true;
@@ -85,7 +91,7 @@ function normalizeAppearance(value: unknown, paletteLength: number): AppearanceR
 	if (!isRecord(value)) return null;
 	const text = normalizeTextAppearance(value.text, paletteLength);
 	const background = normalizeEffect(value.background, paletteLength);
-	const border = normalizeBorder(value.border, paletteLength);
+	const border = normalizeBorderAppearance(value.border, paletteLength);
 	const descendants = normalizeDescendants(value.descendants);
 	if (!text && !background && !border && !descendants) return null;
 	return {
@@ -123,6 +129,8 @@ function normalizeConditionalFormat(value: unknown, paletteLength: number): Cond
 	const backgroundEnabled = value.backgroundEnabled !== undefined
 		? value.backgroundEnabled === true
 		: legacyEffect === 'background' || legacyEffect === 'both';
+	const border = normalizeBorder(value.border, paletteLength);
+	const borderEnabled = value.borderEnabled === true && border !== undefined;
 
 	return {
 		id: value.id,
@@ -133,6 +141,8 @@ function normalizeConditionalFormat(value: unknown, paletteLength: number): Cond
 		color: color.kind === 'none' ? { kind: 'custom', hex: '#A8ADB5', strength: 100 } : color,
 		backgroundEnabled,
 		backgroundColor: backgroundColor.kind === 'none' ? { kind: 'custom', hex: '#A8ADB5', strength: 20 } : backgroundColor,
+		...(value.borderEnabled !== undefined || border ? { borderEnabled } : {}),
+		...(border ? { border } : {}),
 		bold: value.bold === true,
 		strikethrough: value.strikethrough === true,
 	};

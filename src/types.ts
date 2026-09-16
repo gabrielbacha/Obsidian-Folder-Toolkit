@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -33,6 +33,8 @@ export interface BorderRule {
 	shading?: boolean;
 }
 
+export type BorderAppearanceRule = BorderRule | { kind: 'none' };
+
 export interface DescendantRule {
 	enabled: boolean;
 	style: BorderStyle;
@@ -43,7 +45,7 @@ export interface DescendantRule {
 export interface AppearanceRule {
 	text?: TextAppearanceRule;
 	background?: EffectRule;
-	border?: BorderRule;
+	border?: BorderAppearanceRule;
 	descendants?: DescendantRule;
 }
 
@@ -59,6 +61,8 @@ export interface ConditionalFormatRule {
 	color: Exclude<ColorChoice, { kind: 'none' }>;
 	backgroundEnabled?: boolean;
 	backgroundColor?: Exclude<ColorChoice, { kind: 'none' }>;
+	borderEnabled?: boolean;
+	border?: BorderRule;
 	bold?: boolean;
 	strikethrough?: boolean;
 }

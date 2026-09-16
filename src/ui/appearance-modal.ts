@@ -2,9 +2,13 @@ import { Modal, TFolder, setIcon } from 'obsidian';
 import { resolveAppearance } from '../appearance-resolver';
 import { AppearanceControlRenderer } from './appearance-controls';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
+import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
 
 type EffectKey = 'text' | 'background';
+
+function isBorderRule(border: BorderAppearanceRule | undefined): border is BorderRule {
+	return border !== undefined && !('kind' in border);
+}
 
 export class AppearanceModal extends Modal {
 	private draft: AppearanceRule;
@@ -23,7 +27,7 @@ export class AppearanceModal extends Modal {
 		super(toolkit.app);
 		this.draft = structuredClone(toolkit.settings.appearanceRules[path] ?? {});
 		this.isFolder = toolkit.app.vault.getAbstractFileByPath(path) instanceof TFolder;
-		this.rememberedBorder = structuredClone(this.draft.border ?? {
+		this.rememberedBorder = structuredClone(isBorderRule(this.draft.border) ? this.draft.border : {
 			style: 'box',
 			color: { kind: 'preset', slot: 0 },
 			thickness: 'thin',
@@ -60,7 +64,7 @@ export class AppearanceModal extends Modal {
 		this.renderPreview(previewPane);
 		const cards = layout.createDiv('ft-appearance-grid');
 		this.renderBackground(cards);
-		if (this.isFolder) this.renderBorder(cards);
+		this.renderBorder(cards);
 		this.renderText(cards);
 		if (this.isFolder) this.renderDescendants(cards);
 
@@ -180,7 +184,7 @@ export class AppearanceModal extends Modal {
 				appearance.background !== null && ((directHasColor && !directCascades) || (!directBackground && relation === 'root')),
 			);
 			
-			const hasBorder = appearance.border && isFolder && relation !== 'ancestor';
+			const hasBorder = appearance.border !== null;
 			el.classList.toggle('ft-preview-border-box', !!(hasBorder && appearance.border?.style === 'box'));
 			el.classList.toggle('ft-preview-border-rail', !!(hasBorder && appearance.border?.style === 'rail'));
 			el.classList.toggle('ft-preview-border-shaded', !!(hasBorder && appearance.border?.shading));
@@ -305,25 +309,30 @@ export class AppearanceModal extends Modal {
 		const header = card.createDiv('ft-color-card__header');
 		header.createEl('h3', { text: 'Border' });
 		this.clearButton(header, 'Clear border', this.draft.border === undefined, () => {
-			if (this.draft.border) this.rememberedBorder = structuredClone(this.draft.border);
+			if (isBorderRule(this.draft.border)) this.rememberedBorder = structuredClone(this.draft.border);
 			delete this.draft.border;
 			this.render();
 		});
 
+		const activeBorder = isBorderRule(this.draft.border) ? this.draft.border : undefined;
 		const styles = card.createDiv('ft-choice-row');
-		this.choiceButton(styles, 'Rounded box', this.draft.border?.style === 'box', () => {
+		this.choiceButton(styles, 'No border', this.draft.border !== undefined && !isBorderRule(this.draft.border), () => {
+			this.draft.border = { kind: 'none' };
+			this.render();
+		});
+		this.choiceButton(styles, 'Rounded box', activeBorder?.style === 'box', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'box' };
 			this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
-		this.choiceButton(styles, 'Vertical rail', this.draft.border?.style === 'rail', () => {
+		this.choiceButton(styles, 'Vertical rail', activeBorder?.style === 'rail', () => {
 			this.rememberedBorder = { ...this.rememberedBorder, style: 'rail' };
 			this.draft.border = structuredClone(this.rememberedBorder);
 			this.render();
 		});
 
 		const thicknessRow = card.createDiv('ft-choice-row');
-		const currentThickness = this.draft.border?.thickness;
+		const currentThickness = activeBorder?.thickness;
 		for (const size of ['thin', 'medium', 'thick'] as const) {
 			this.choiceButton(thicknessRow, size.charAt(0).toUpperCase() + size.slice(1), currentThickness === size, () => {
 				this.rememberedBorder = { ...this.rememberedBorder, thickness: size };
@@ -333,7 +342,7 @@ export class AppearanceModal extends Modal {
 		}
 
 		this.controls.renderColorControls(card, {
-			selected: this.draft.border?.color,
+			selected: activeBorder?.color,
 			defaultStrength: this.rememberedBorder.style === 'box' ? 42 : 55,
 			onSelect: (choice, rerender) => {
 				if (choice && choice.kind !== 'none') {

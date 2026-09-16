@@ -1,7 +1,7 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
-import { isBackgroundEnabled, isFontEnabled } from '../conditional-format';
+import { isBackgroundEnabled, isBorderEnabled, isFontEnabled } from '../conditional-format';
 import type FolderToolkitPlugin from '../main';
 import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
@@ -57,8 +57,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			},
 			{
 				name: 'Conditional formatting',
-				desc: 'Style matching file and folder names with the same text and background controls used for direct editing.',
-				aliases: ['name rules', 'starts with', 'folder shading', 'file shading'],
+				desc: 'Style matching file and folder names with the same text, background, and border controls used for direct editing.',
+				aliases: ['name rules', 'starts with', 'folder shading', 'file shading', 'file border', 'folder border'],
 				render: (setting) => this.renderConditionalFormats(setting),
 			},
 			{
@@ -221,6 +221,9 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			const badges = summary.createSpan('ft-conditional-summary__badges');
 			if (isFontEnabled(rule)) this.renderStyleBadge(badges, 'Font', rule.color);
 			if (isBackgroundEnabled(rule)) this.renderStyleBadge(badges, 'Background', rule.backgroundColor ?? rule.color);
+			if (isBorderEnabled(rule) && rule.border) {
+				this.renderStyleBadge(badges, rule.border.style === 'box' ? 'Border · Box' : 'Border · Rail', rule.border.color);
+			}
 			if (rule.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
 			if (rule.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
 			const chevron = disclosure.createSpan('ft-conditional-disclosure__chevron');
@@ -306,6 +309,66 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			}
 
 			const styleGrid = editor.createDiv('ft-shared-style-grid');
+			const backgroundCard = styleGrid.createDiv('ft-color-card ft-color-card--background');
+			const backgroundHeader = backgroundCard.createDiv('ft-color-card__header');
+			backgroundHeader.createDiv({ text: 'Background', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
+			const backgroundToggle = backgroundHeader.createEl('label', { cls: 'ft-border-toggle' });
+			const backgroundCheck = backgroundToggle.createEl('input', { attr: { type: 'checkbox' } });
+			backgroundCheck.checked = isBackgroundEnabled(rule);
+			backgroundToggle.createSpan({ text: 'Enable background' });
+			backgroundCheck.addEventListener('change', () => { rule.backgroundEnabled = backgroundCheck.checked; void save(true); });
+			const backgroundChoice = rule.backgroundColor ?? { kind: 'custom' as const, hex: '#A8ADB5', strength: 20 };
+			controls.renderColorControls(backgroundCard, {
+				selected: backgroundChoice,
+				defaultStrength: 20,
+				disabled: !backgroundCheck.checked,
+				onSelect: (choice, rerender) => {
+					if (!choice || choice.kind === 'none') return;
+					rule.backgroundColor = choice;
+					void save(rerender);
+				},
+			});
+
+			const borderCard = styleGrid.createDiv('ft-color-card ft-color-card--border');
+			const borderHeader = borderCard.createDiv('ft-color-card__header');
+			borderHeader.createDiv({ text: 'Border', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
+			const borderToggle = borderHeader.createEl('label', { cls: 'ft-border-toggle' });
+			const borderCheck = borderToggle.createEl('input', { attr: { type: 'checkbox' } });
+			borderCheck.checked = isBorderEnabled(rule);
+			borderToggle.createSpan({ text: 'Enable border' });
+			const border = rule.border ?? { style: 'box' as const, color: { kind: 'preset' as const, slot: 0, strength: 42 }, thickness: 'thin' as const };
+			borderCheck.addEventListener('change', () => {
+				rule.borderEnabled = borderCheck.checked;
+				if (borderCheck.checked && !rule.border) rule.border = structuredClone(border);
+				void save(true);
+			});
+			const borderStyles = borderCard.createDiv('ft-choice-row');
+			controls.choiceButton(borderStyles, 'Rounded box', border.style === 'box', () => {
+				rule.border = { ...border, style: 'box' };
+				void save(true);
+			}, !borderCheck.checked);
+			controls.choiceButton(borderStyles, 'Vertical rail', border.style === 'rail', () => {
+				rule.border = { ...border, style: 'rail' };
+				void save(true);
+			}, !borderCheck.checked);
+			const thickness = borderCard.createDiv('ft-choice-row');
+			for (const size of ['thin', 'medium', 'thick'] as const) {
+				controls.choiceButton(thickness, size.charAt(0).toUpperCase() + size.slice(1), border.thickness === size, () => {
+					rule.border = { ...border, thickness: size };
+					void save(true);
+				}, !borderCheck.checked);
+			}
+			controls.renderColorControls(borderCard, {
+				selected: border.color,
+				defaultStrength: border.style === 'box' ? 42 : 55,
+				disabled: !borderCheck.checked,
+				onSelect: (choice, rerender) => {
+					if (!choice || choice.kind === 'none') return;
+					rule.border = { ...border, color: choice };
+					void save(rerender);
+				},
+			});
+
 			const textCard = styleGrid.createDiv('ft-color-card ft-color-card--text');
 			const textHeader = textCard.createDiv('ft-color-card__header');
 			textHeader.createDiv({ text: 'Text', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
@@ -329,26 +392,6 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				rule.bold = bold;
 				rule.strikethrough = strikethrough;
 				void save(true);
-			});
-
-			const backgroundCard = styleGrid.createDiv('ft-color-card ft-color-card--background');
-			const backgroundHeader = backgroundCard.createDiv('ft-color-card__header');
-			backgroundHeader.createDiv({ text: 'Background', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
-			const backgroundToggle = backgroundHeader.createEl('label', { cls: 'ft-border-toggle' });
-			const backgroundCheck = backgroundToggle.createEl('input', { attr: { type: 'checkbox' } });
-			backgroundCheck.checked = isBackgroundEnabled(rule);
-			backgroundToggle.createSpan({ text: 'Enable background' });
-			backgroundCheck.addEventListener('change', () => { rule.backgroundEnabled = backgroundCheck.checked; void save(true); });
-			const backgroundChoice = rule.backgroundColor ?? { kind: 'custom' as const, hex: '#A8ADB5', strength: 20 };
-			controls.renderColorControls(backgroundCard, {
-				selected: backgroundChoice,
-				defaultStrength: 20,
-				disabled: !backgroundCheck.checked,
-				onSelect: (choice, rerender) => {
-					if (!choice || choice.kind === 'none') return;
-					rule.backgroundColor = choice;
-					void save(rerender);
-				},
 			});
 		}
 
@@ -422,7 +465,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		const previews = card.createDiv('ft-rule-card__previews');
 		this.renderEffectPreview(previews, 'Text', rule.text?.color);
 		this.renderEffectPreview(previews, 'Background', rule.background?.choice);
-		this.renderEffectPreview(previews, 'Border', rule.border?.color);
+		if (rule.border && 'kind' in rule.border) this.renderEffectPreview(previews, 'Border', { kind: 'none' });
+		else this.renderEffectPreview(previews, 'Border', rule.border?.color);
 		const textStyles = [rule.text?.bold ? 'Bold' : null, rule.text?.strikethrough ? 'Strikethrough' : null].filter((style): style is string => style !== null);
 		if (textStyles.length > 0) previews.createDiv({ text: `Text style: ${textStyles.join(' · ')}`, cls: 'ft-rule-preview' });
 

@@ -1,6 +1,6 @@
 import { resolveAutomaticText, resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
-import { conditionalEffectFor, conditionalStylesFor } from './conditional-format';
+import { conditionalBorderFor, conditionalEffectFor, conditionalStylesFor } from './conditional-format';
 import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings, TextAppearanceRule } from './types';
 
 export function hasDirectAppearance(rule: AppearanceRule | undefined): boolean {
@@ -76,9 +76,15 @@ function isFolderPath(path: string, context: ResolverContext): boolean {
 function effectiveBorder(
 	path: string,
 	context: ResolverContext,
-): BorderRule | undefined {
+): BorderRule | null | undefined {
 	const direct = context.settings.appearanceRules[path]?.border;
-	if (direct) return direct;
+	if (direct) {
+		if ('kind' in direct) return null;
+		return direct;
+	}
+
+	const conditional = conditionalBorderFor(path, isFolderPath(path, context), context.settings);
+	if (conditional) return conditional;
 
 	// Descendant border rules only apply to folders
 	if (!isFolderPath(path, context)) return undefined;

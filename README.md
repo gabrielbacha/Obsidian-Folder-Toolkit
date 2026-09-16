@@ -19,8 +19,8 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 ## Features
 
-- Independent text and background colors for folders and notes
-- Conditional font and background colors plus bold and strikethrough styling by file or folder name, with exact, prefix, suffix, and contains matching
+- Independent text, background, and border colors for folders and notes
+- Conditional font, background, and border colors plus bold and strikethrough styling by file or folder name, with exact, prefix, suffix, and contains matching
 - Per-effect folder cascading with explicit inheritance blockers
 - Rounded-box or vertical-rail borders around folder subtrees, with optional shaded interiors
 - Alternating active-palette borders for direct subfolders
@@ -36,7 +36,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 Right-click or long-press a file or folder and use the actions in Obsidian's plugin-action group:
 
-- **Edit folder appearance…** or **Edit file appearance…** opens a unified text and background editor with bold, strikethrough, and one descendant-inheritance control for the complete text treatment. Cascaded backgrounds remain aligned to each indented explorer row, while folder borders and optional shading enclose their own subtree. Direct subfolders can receive alternating colors from the active palette. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
+- **Edit folder appearance…** or **Edit file appearance…** opens a unified background, border, and text editor with bold, strikethrough, and folder descendant-inheritance controls. File borders enclose one explorer row; folder borders and optional shading enclose their subtree. **Clear border** returns to conditional or generated styling, while **No border** explicitly blocks it for that item. Direct subfolders can receive alternating colors from the active palette. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
 - **Hide file/folder** permanently removes the item from the explorer until hidden items are shown or the path is unhidden.
 - **Focus this folder** temporarily hides unrelated branches. Use **Exit folder focus** from a visible folder or the command palette to restore the explorer.
 
@@ -44,7 +44,7 @@ Use **Folder Toolkit: Toggle hidden items** to reveal hidden paths. The settings
 
 Set **Open note tabs** to **Colored background** or **Colored border** to carry each open note's effective cascaded colors into its workspace tab. Text rules color the tab title, while background rules independently color the tab surface or border.
 
-Use **Conditional formatting** in settings to style items by name anywhere in the vault. Choose files, folders, or both; match an exact name or a name that starts with, ends with, or contains a pattern; then enable font color, background color, bold, or strikethrough in any combination. Font and background colors each have their own color and strength controls. Matching is case-insensitive, and exact or suffix matches work with or without a file extension. Direct item overrides take priority, and the last matching conditional rule wins independently for text color, background color, bold, and strikethrough. Muted font rules for `__system` folders, `__archive` file prefixes, and `_basefiles` folder suffixes are enabled by default.
+Use **Conditional formatting** in settings to style items by name anywhere in the vault. Choose files, folders, or both; match an exact name or a name that starts with, ends with, or contains a pattern; then enable font color, background color, border, bold, or strikethrough in any combination. Each color has independent palette, custom color, and strength controls. Matching is case-insensitive, and exact or suffix matches work with or without a file extension. Direct item overrides take priority, and the last matching conditional rule wins independently for text color, background color, border, bold, and strikethrough. Muted font rules for `__system` folders, `__archive` file prefixes, and `_basefiles` folder suffixes are enabled by default.
 
 When a file or folder is renamed or moved, saved rules follow the path and open tabs immediately resolve their appearance from the new folder hierarchy.
 

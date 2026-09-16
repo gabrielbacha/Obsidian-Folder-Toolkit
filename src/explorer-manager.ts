@@ -133,7 +133,7 @@ export class ExplorerManager {
 		syncClass(row, 'ft-background-block', directBackgroundBlocks);
 		syncClass(row, 'ft-background-block-cascade', directBackgroundBlocks && directBackgroundCascades);
 
-		if (appearance.border && row.classList.contains('nav-folder')) {
+		if (appearance.border) {
 			syncClass(row, 'ft-border-box', appearance.border.style === 'box');
 			syncClass(row, 'ft-border-rail', appearance.border.style === 'rail');
 			syncStyle(row.style, '--ft-border', appearance.border.color.hex);
@@ -145,7 +145,7 @@ export class ExplorerManager {
 			const width = thicknessMap[appearance.border.thickness ?? 'thin'];
 			syncStyle(row.style, '--ft-border-width', width);
 
-			syncClass(row, 'ft-border-shaded', !!appearance.border.shading);
+			syncClass(row, 'ft-border-shaded', isFolder && !!appearance.border.shading);
 		} else {
 			syncClass(row, 'ft-border-box', false);
 			syncClass(row, 'ft-border-rail', false);

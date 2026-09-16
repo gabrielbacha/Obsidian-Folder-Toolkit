@@ -106,6 +106,43 @@ describe('appearance resolution', () => {
 		expect(deepSub.border).toBeNull();
 	});
 
+	it('resolves direct and conditional borders for files and folders with explicit blockers', () => {
+		const borderSettings: FolderToolkitSettings = {
+			...settings,
+			appearanceRules: {
+				Root: { descendants: { enabled: true, style: 'rail', thickness: 'thick', shading: true } },
+				'Root/direct.md': { border: { style: 'box', color: { kind: 'custom', hex: '#112233', strength: 70 }, thickness: 'medium' } },
+				'Root/blocked.md': { border: { kind: 'none' } },
+				'Root/BlockedFolder': { border: { kind: 'none' } },
+			},
+			conditionalFormats: [
+				{
+					id: 'first', target: 'both', match: 'contains', pattern: 'rule',
+					fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' }, borderEnabled: true,
+					border: { style: 'box', color: { kind: 'preset', slot: 1 }, thickness: 'thin' },
+				},
+				{
+					id: 'last', target: 'both', match: 'contains', pattern: 'rule',
+					fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' }, borderEnabled: true,
+					border: { style: 'rail', color: { kind: 'preset', slot: 2, strength: 65 }, thickness: 'thick' },
+				},
+			],
+		};
+
+		expect(resolveAppearance('Root/direct.md', { settings: borderSettings, isFolder: false }).border).toMatchObject({
+			style: 'box', color: { hex: '#112233', strength: 70 }, thickness: 'medium',
+		});
+		expect(resolveAppearance('Root/rule.md', { settings: borderSettings, isFolder: false }).border).toMatchObject({
+			style: 'rail', color: { hex: '#8E44AD', strength: 65 }, thickness: 'thick',
+		});
+		expect(resolveAppearance('Root/rule-folder', { settings: borderSettings, isFolder: true }).border?.style).toBe('rail');
+		expect(resolveAppearance('Root/blocked.md', { settings: borderSettings, isFolder: false }).border).toBeNull();
+		expect(resolveAppearance('Root/BlockedFolder', { settings: borderSettings, isFolder: true }).border).toBeNull();
+		expect(resolveAppearance('Root/ordinary', { settings: borderSettings, isFolder: true }).border).toMatchObject({
+			style: 'rail', thickness: 'thick', shading: true,
+		});
+	});
+
 	it('matches reusable name rules by item type and lets exact paths override them', () => {
 		const conditionalSettings: FolderToolkitSettings = {
 			...settings,

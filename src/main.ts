@@ -116,6 +116,8 @@ export default class FolderToolkitPlugin extends Plugin {
 			color: { kind: 'custom', hex: '#FFFFFF', strength: 100 },
 			backgroundEnabled: false,
 			backgroundColor: { kind: 'custom', hex: '#A8ADB5', strength: 20 },
+			borderEnabled: false,
+			border: { style: 'box', color: { kind: 'preset', slot: 0, strength: 42 }, thickness: 'thin' },
 			bold: false,
 			strikethrough: false,
 		});
