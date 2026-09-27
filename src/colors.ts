@@ -146,8 +146,7 @@ export function contrastRatio(firstHex: string, secondHex: string): number {
 export function adjustForContrast(foregroundHex: string, backgroundHex: string, minimumRatio = 4.5): string {
 	if (contrastRatio(foregroundHex, backgroundHex) >= minimumRatio) return normalizeHex(foregroundHex)!;
 	const foreground = hexToRgb(foregroundHex);
-	const background = hexToRgb(backgroundHex);
-	const target = relativeLuminance(background) > 0.5
+	const target = contrastRatio('#000000', backgroundHex) >= contrastRatio('#FFFFFF', backgroundHex)
 		? { r: 0, g: 0, b: 0 }
 		: { r: 255, g: 255, b: 255 };
 	for (let step = 1; step <= 100; step += 1) {

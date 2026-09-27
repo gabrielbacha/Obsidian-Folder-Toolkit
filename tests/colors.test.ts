@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeHex, paletteTemplate, resolveAutomaticText, resolveChoice } from '../src/colors';
+import { adjustForContrast, contrastRatio, normalizeHex, paletteTemplate, resolveAutomaticText, resolveChoice } from '../src/colors';
 
 describe('colors', () => {
 	it('normalizes valid hex values', () => {
 		expect(normalizeHex('abc')).toBe('#AABBCC');
 		expect(normalizeHex('#12ef90')).toBe('#12EF90');
 		expect(normalizeHex('not-a-color')).toBeNull();
+	});
+
+	it('meets AA contrast on medium gray when white is not readable enough', () => {
+		const adjusted = adjustForContrast('#FFFFFF', '#808080');
+		expect(contrastRatio(adjusted, '#808080')).toBeGreaterThanOrEqual(4.5);
 	});
 
 	it('chooses readable automatic text for strong backgrounds', () => {
