@@ -28,19 +28,24 @@ function installDomHelpers(): void {
 	HTMLElement.prototype.setText = function (text: string) { this.textContent = text; };
 }
 
-function harness(folder: boolean) {
+function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appearanceRules"] = {}, siblingPaths: string[] = []) {
 	const settings: FolderToolkitSettings = {
 		schemaVersion: 6,
 		paletteTemplateId: "default",
 		tabStyle: "off",
-		appearanceRules: {},
+		appearanceRules,
 		conditionalFormats: [],
 		hiddenPaths: [],
 		showHiddenItems: false,
 	};
 	const previewAppearance = vi.fn();
+	const currentFolder = Object.assign(new TFolder(), { path: "Folder", name: "Folder" });
+	const siblings = siblingPaths.map((path) => Object.assign(new TFolder(), { path, name: path }));
+	const parent = Object.assign(new TFolder(), { path: "", name: "", children: [currentFolder, ...siblings] });
+	Object.assign(currentFolder, { parent });
+	for (const sibling of siblings) Object.assign(sibling, { parent });
 	const toolkit = {
-		app: { vault: { getAbstractFileByPath: () => folder ? new TFolder() : {} } },
+		app: { vault: { getAbstractFileByPath: () => folder ? currentFolder : {} } },
 		settings,
 		previewAppearance,
 		clearAppearancePreview: vi.fn(),
@@ -96,6 +101,7 @@ describe("AppearanceModal immediate controls", () => {
 		const cascades = [...modal.contentEl.querySelectorAll<HTMLInputElement>(".ft-cascade-control input")];
 		expect(cascades).toHaveLength(2);
 		expect(cascades.every((checkbox) => !checkbox.disabled)).toBe(true);
+		expect(cascades.every((checkbox) => !checkbox.checked)).toBe(true);
 		cascades[0].checked = false;
 		cascades[0].dispatchEvent(new Event("change"));
 		modal.contentEl.querySelector<HTMLElement>(".ft-color-card--background")!.querySelector<HTMLButtonElement>(".ft-swatch")!.click();
@@ -104,6 +110,40 @@ describe("AppearanceModal immediate controls", () => {
 		const borderCard = [...modal.contentEl.querySelectorAll<HTMLElement>(".ft-color-card")].find((card) => card.querySelector("h3")?.textContent === "Border")!;
 		[...borderCard.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Rounded box")!.click();
 		expect(latestDraft().border).toMatchObject({ style: "box", color: { kind: "preset", slot: 0 } });
+		modal.onClose();
+	});
+
+	it("applies folder presets as replacement drafts and selects the next unused sibling color", () => {
+		const { modal, latestDraft } = harness(true, {
+			"Sibling A": { background: { choice: { kind: "preset", slot: 0 }, cascade: false } },
+			"Sibling B": { text: { color: { kind: "preset", slot: 1 }, bold: false, strikethrough: false, cascade: false } },
+		}, ["Sibling A", "Sibling B"]);
+		const presetButtons = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")];
+		expect(presetButtons.map((button) => button.querySelector(".ft-appearance-preset__label")?.textContent)).toEqual([
+			"Grouping folder", "Muted", "Highlight", "Section rail", "Minimal label",
+		]);
+		presetButtons[0].click();
+		expect(latestDraft().background).toEqual({ choice: { kind: "preset", slot: 2, strength: 14 }, cascade: false });
+		expect(latestDraft().border).toMatchObject({ style: "box", color: { kind: "preset", slot: 2 } });
+		expect(latestDraft().descendants).toEqual({ enabled: true, style: "rail", thickness: "thin", shading: true });
+
+		const muted = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")].find((button) => button.textContent?.includes("Muted"))!;
+		muted.click();
+		expect(latestDraft()).toEqual({ background: { choice: { kind: "custom", hex: "#A8ADB5", strength: 16 }, cascade: true } });
+		[...modal.contentEl.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reset to inherited")!.click();
+		expect(latestDraft()).toEqual({});
+		expect([...modal.contentEl.querySelectorAll<HTMLInputElement>(".ft-cascade-control input")].every((checkbox) => !checkbox.checked)).toBe(true);
+		modal.onClose();
+	});
+
+	it("preserves descendant settings already saved on a folder", () => {
+		const { modal } = harness(true, {
+			Folder: {
+				background: { choice: { kind: "preset", slot: 0 }, cascade: true },
+				text: { color: { kind: "preset", slot: 0 }, bold: false, strikethrough: false, cascade: true },
+			},
+		});
+		expect([...modal.contentEl.querySelectorAll<HTMLInputElement>(".ft-cascade-control input")].every((checkbox) => checkbox.checked)).toBe(true);
 		modal.onClose();
 	});
 });

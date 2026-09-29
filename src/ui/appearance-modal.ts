@@ -1,5 +1,7 @@
 import { Modal, TFolder, setIcon } from 'obsidian';
 import { resolveAppearance } from '../appearance-resolver';
+import { createFolderAppearancePreset, FOLDER_APPEARANCE_PRESETS, paletteSlotsUsedByAppearance, type FolderAppearancePresetId } from '../appearance-presets';
+import { paletteTemplate } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
 import type FolderToolkitPlugin from '../main';
 import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
@@ -38,8 +40,8 @@ export class AppearanceModal extends Modal {
 			thickness: 'thin',
 			shading: false,
 		});
-		this.textCascade = this.draft.text?.cascade ?? this.isFolder;
-		this.backgroundCascade = this.draft.background?.cascade ?? this.isFolder;
+		this.textCascade = this.draft.text?.cascade ?? false;
+		this.backgroundCascade = this.draft.background?.cascade ?? false;
 	}
 
 	onOpen(): void {
@@ -59,6 +61,7 @@ export class AppearanceModal extends Modal {
 		this.clearPickerListeners();
 		this.contentEl.empty();
 		this.contentEl.addClass('ft-appearance-modal', this.isFolder ? 'ft-appearance-modal--folder' : 'ft-appearance-modal--file');
+		if (this.isFolder) this.renderPresets();
 		const layout = this.contentEl.createDiv('ft-appearance-layout');
 		const previewPane = layout.createDiv('ft-appearance-preview-pane');
 		this.renderPreview(previewPane);
@@ -72,8 +75,8 @@ export class AppearanceModal extends Modal {
 		const clear = footer.createEl('button', { text: 'Reset to inherited', attr: { type: 'button' } });
 		clear.addEventListener('click', () => {
 			this.draft = {};
-			this.textCascade = this.isFolder;
-			this.backgroundCascade = this.isFolder;
+			this.textCascade = false;
+			this.backgroundCascade = false;
 			this.render();
 		});
 		const cancel = footer.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
@@ -83,6 +86,45 @@ export class AppearanceModal extends Modal {
 		footer.before(error);
 		save.addEventListener('click', () => { void this.save(save, error); });
 		this.refreshPreview();
+	}
+
+	private renderPresets(): void {
+		const section = this.contentEl.createEl('section', { cls: 'ft-appearance-presets' });
+		const heading = section.createDiv('ft-appearance-presets__header');
+		heading.createDiv({ text: 'Presets', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '2' } });
+		heading.createDiv({ text: 'Apply a starting style, then adjust any control before saving.', cls: 'ft-appearance-presets__hint' });
+		const list = section.createDiv('ft-appearance-presets__list');
+		for (const preset of FOLDER_APPEARANCE_PRESETS) {
+			const button = list.createEl('button', {
+				cls: 'ft-appearance-preset',
+				attr: { type: 'button', 'aria-label': `Apply ${preset.label} preset` },
+			});
+			button.createSpan({ text: preset.label, cls: 'ft-appearance-preset__label' });
+			button.createSpan({ text: preset.description, cls: 'ft-appearance-preset__description' });
+			button.addEventListener('click', () => this.applyPreset(preset.id));
+		}
+	}
+
+	private applyPreset(id: FolderAppearancePresetId): void {
+		this.draft = createFolderAppearancePreset(id, this.nextSiblingPaletteSlot());
+		this.textCascade = this.draft.text?.cascade ?? false;
+		this.backgroundCascade = this.draft.background?.cascade ?? false;
+		if (isBorderRule(this.draft.border)) this.rememberedBorder = structuredClone(this.draft.border);
+		if (this.draft.descendants) this.rememberedDescendants = structuredClone(this.draft.descendants);
+		this.render();
+	}
+
+	private nextSiblingPaletteSlot(): number {
+		const folder = this.toolkit.app.vault.getAbstractFileByPath(this.path);
+		const paletteLength = paletteTemplate(this.toolkit.settings.paletteTemplateId).colors.length;
+		if (!(folder instanceof TFolder) || !folder.parent || paletteLength === 0) return 0;
+		const siblings = folder.parent.children.filter((child): child is TFolder => child instanceof TFolder && child.path !== folder.path);
+		const used = new Set(siblings.flatMap((sibling) => paletteSlotsUsedByAppearance(this.toolkit.settings.appearanceRules[sibling.path])));
+		for (let slot = 0; slot < paletteLength; slot += 1) {
+			if (!used.has(slot)) return slot;
+		}
+		const ordered = [...siblings, folder].sort((a, b) => a.name.localeCompare(b.name));
+		return Math.max(0, ordered.findIndex((candidate) => candidate.path === folder.path)) % paletteLength;
 	}
 
 	private async save(button: HTMLButtonElement, error: HTMLElement): Promise<void> {

@@ -20,6 +20,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 ## Features
 
 - Independent text, background, and border colors for folders and notes
+- Five one-click folder appearance presets with stable sibling-aware palette assignment
 - Conditional font, background, and border colors plus bold and strikethrough styling by file or folder name, with exact, prefix, suffix, and contains matching
 - Per-effect folder cascading with explicit inheritance blockers
 - Rounded-box or vertical-rail borders around folder subtrees, with optional shaded interiors
@@ -36,7 +37,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 
 Right-click or long-press a file or folder and use the actions in Obsidian's plugin-action group:
 
-- **Edit folder appearance…** or **Edit file appearance…** opens a unified background, border, and text editor with bold, strikethrough, and folder descendant-inheritance controls. File borders enclose one explorer row; folder borders and optional shading enclose their subtree. **Clear border** returns to conditional or generated styling, while **No border** explicitly blocks it for that item. Direct subfolders can receive alternating colors from the active palette. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
+- **Edit folder appearance…** or **Edit file appearance…** opens a unified background, border, and text editor with bold, strikethrough, and folder descendant-inheritance controls. New folder treatments start with **Include descendants** off. The folder editor also offers Grouping folder, Muted, Highlight, Section rail, and Minimal label presets; presets replace the unsaved draft and remain editable before Save. File borders enclose one explorer row; folder borders and optional shading enclose their subtree. **Clear border** returns to conditional or generated styling, while **No border** explicitly blocks it for that item. Direct subfolders can receive alternating colors from the active palette. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule.
 - **Hide file/folder** permanently removes the item from the explorer until hidden items are shown or the path is unhidden.
 - **Focus this folder** temporarily hides unrelated branches. Use **Exit folder focus** from a visible folder or the command palette to restore the explorer.
 
