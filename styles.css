@@ -153,8 +153,7 @@ body.theme-dark .workspace-tab-header.ft-tab-has-text .workspace-tab-header-inne
 	gap: var(--size-4-3);
 }
 
-.ft-appearance-presets__hint,
-.ft-appearance-preset__description {
+.ft-appearance-presets__hint {
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	text-wrap: pretty;
@@ -162,20 +161,60 @@ body.theme-dark .workspace-tab-header.ft-tab-has-text .workspace-tab-header-inne
 
 .ft-appearance-presets__list {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
 	gap: var(--size-4-2);
 }
 
 button.ft-appearance-preset {
 	display: grid;
-	gap: var(--size-4-1);
+	grid-template-rows: 1fr auto;
+	gap: var(--size-4-2);
 	height: auto;
-	min-height: 68px;
-	padding: var(--size-4-2) var(--size-4-3);
+	padding: var(--size-4-2);
 	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
+	background: var(--background-secondary);
 	box-shadow: none;
 	text-align: start;
+	cursor: pointer;
+}
+
+/* Compact live sample inside each preset button. It reuses the editor's preview
+   classes so every preset renders exactly like the explorer would. */
+.ft-appearance-preset__sample {
+	overflow: hidden;
+	padding: 4px;
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	pointer-events: none;
+}
+
+.ft-appearance-modal--file .ft-appearance-preset__sample {
+	align-self: center;
+}
+
+.ft-preview-tree--compact {
+	font-size: var(--font-ui-smaller);
+}
+
+.ft-preview-tree--compact .ft-live-preview__row {
+	gap: 2px;
+	min-height: 20px;
+	padding: 1px 6px;
+}
+
+.ft-preview-tree--compact .nav-folder-collapse-indicator.collapse-icon {
+	width: 12px;
+	height: 12px;
+}
+
+.ft-preview-tree--compact .nav-folder-collapse-indicator.collapse-icon svg {
+	width: 10px;
+	height: 10px;
+}
+
+.ft-preview-tree--compact .ft-preview-children {
+	margin-left: 10px;
+	padding-left: 2px;
 }
 
 button.ft-appearance-preset:hover,
@@ -186,6 +225,8 @@ button.ft-appearance-preset:focus-visible {
 }
 
 .ft-appearance-preset__label {
+	padding-inline: 2px;
+	font-size: var(--font-ui-small);
 	font-weight: var(--font-medium);
 	text-wrap: balance;
 }
@@ -279,7 +320,8 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 	color: color-mix(in srgb, var(--ft-preview-text-dark) var(--ft-preview-text-strength, 100%), var(--nav-item-color, var(--text-normal)));
 }
 
-.ft-live-preview__row.ft-preview-is-bold {
+.ft-live-preview__row.ft-preview-is-bold,
+.ft-live-preview__row.ft-preview-is-bold .ft-live-preview__name {
 	font-weight: var(--font-bold, 700);
 }
 

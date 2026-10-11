@@ -1,8 +1,16 @@
-import { Modal, TFolder, setIcon } from 'obsidian';
-import { resolveAppearance } from '../appearance-resolver';
-import { createFolderAppearancePreset, FOLDER_APPEARANCE_PRESETS, paletteSlotsUsedByAppearance, type FolderAppearancePresetId } from '../appearance-presets';
+import { Modal, TAbstractFile, TFolder } from 'obsidian';
+import {
+	createFileAppearancePreset,
+	createFolderAppearancePreset,
+	FILE_APPEARANCE_PRESETS,
+	FOLDER_APPEARANCE_PRESETS,
+	paletteSlotsUsedByAppearance,
+	type FileAppearancePresetId,
+	type FolderAppearancePresetId,
+} from '../appearance-presets';
 import { paletteTemplate } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
+import { buildPreviewTree, stylePreviewTree, type PreviewTree } from './preview-tree';
 import type FolderToolkitPlugin from '../main';
 import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
 
@@ -61,7 +69,7 @@ export class AppearanceModal extends Modal {
 		this.clearPickerListeners();
 		this.contentEl.empty();
 		this.contentEl.addClass('ft-appearance-modal', this.isFolder ? 'ft-appearance-modal--folder' : 'ft-appearance-modal--file');
-		if (this.isFolder) this.renderPresets();
+		this.renderPresets();
 		const layout = this.contentEl.createDiv('ft-appearance-layout');
 		const previewPane = layout.createDiv('ft-appearance-preview-pane');
 		this.renderPreview(previewPane);
@@ -94,19 +102,31 @@ export class AppearanceModal extends Modal {
 		heading.createDiv({ text: 'Presets', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '2' } });
 		heading.createDiv({ text: 'Apply a starting style, then adjust any control before saving.', cls: 'ft-appearance-presets__hint' });
 		const list = section.createDiv('ft-appearance-presets__list');
-		for (const preset of FOLDER_APPEARANCE_PRESETS) {
+		const presets: ReadonlyArray<{ id: FolderAppearancePresetId | FileAppearancePresetId; label: string; description: string }> = this.isFolder
+			? FOLDER_APPEARANCE_PRESETS
+			: FILE_APPEARANCE_PRESETS;
+		const slot = this.nextSiblingPaletteSlot();
+		for (const preset of presets) {
 			const button = list.createEl('button', {
 				cls: 'ft-appearance-preset',
-				attr: { type: 'button', 'aria-label': `Apply ${preset.label} preset` },
+				attr: { type: 'button', 'aria-label': `Apply ${preset.label} preset. ${preset.description}`, title: preset.description },
 			});
+			const sample = button.createDiv({ cls: 'ft-appearance-preset__sample', attr: { 'aria-hidden': 'true' } });
+			const tree = buildPreviewTree(sample, this.path, this.isFolder, 'compact');
+			stylePreviewTree(tree, this.toolkit.settings, this.path, this.createPreset(preset.id, slot));
 			button.createSpan({ text: preset.label, cls: 'ft-appearance-preset__label' });
-			button.createSpan({ text: preset.description, cls: 'ft-appearance-preset__description' });
 			button.addEventListener('click', () => this.applyPreset(preset.id));
 		}
 	}
 
-	private applyPreset(id: FolderAppearancePresetId): void {
-		this.draft = createFolderAppearancePreset(id, this.nextSiblingPaletteSlot());
+	private createPreset(id: FolderAppearancePresetId | FileAppearancePresetId, slot: number): AppearanceRule {
+		return this.isFolder
+			? createFolderAppearancePreset(id as FolderAppearancePresetId, slot)
+			: createFileAppearancePreset(id as FileAppearancePresetId, slot);
+	}
+
+	private applyPreset(id: FolderAppearancePresetId | FileAppearancePresetId): void {
+		this.draft = this.createPreset(id, this.nextSiblingPaletteSlot());
 		this.textCascade = this.draft.text?.cascade ?? false;
 		this.backgroundCascade = this.draft.background?.cascade ?? false;
 		if (isBorderRule(this.draft.border)) this.rememberedBorder = structuredClone(this.draft.border);
@@ -114,17 +134,24 @@ export class AppearanceModal extends Modal {
 		this.render();
 	}
 
+	/**
+	 * Picks the first palette slot not already used by a sibling of the same kind
+	 * (folders compare against sibling folders, files against sibling files), so
+	 * neighbouring items receive distinct colors. Falls back to a stable
+	 * alphabetical position when every slot is taken.
+	 */
 	private nextSiblingPaletteSlot(): number {
-		const folder = this.toolkit.app.vault.getAbstractFileByPath(this.path);
+		const item = this.toolkit.app.vault.getAbstractFileByPath(this.path);
 		const paletteLength = paletteTemplate(this.toolkit.settings.paletteTemplateId).colors.length;
-		if (!(folder instanceof TFolder) || !folder.parent || paletteLength === 0) return 0;
-		const siblings = folder.parent.children.filter((child): child is TFolder => child instanceof TFolder && child.path !== folder.path);
+		if (!(item instanceof TAbstractFile) || !item.parent || paletteLength === 0) return 0;
+		const sameKind = (candidate: TAbstractFile) => (candidate instanceof TFolder) === this.isFolder;
+		const siblings = item.parent.children.filter((child) => sameKind(child) && child.path !== item.path);
 		const used = new Set(siblings.flatMap((sibling) => paletteSlotsUsedByAppearance(this.toolkit.settings.appearanceRules[sibling.path])));
 		for (let slot = 0; slot < paletteLength; slot += 1) {
 			if (!used.has(slot)) return slot;
 		}
-		const ordered = [...siblings, folder].sort((a, b) => a.name.localeCompare(b.name));
-		return Math.max(0, ordered.findIndex((candidate) => candidate.path === folder.path)) % paletteLength;
+		const ordered = [...siblings, item].sort((a, b) => a.name.localeCompare(b.name));
+		return Math.max(0, ordered.findIndex((candidate) => candidate.path === item.path)) % paletteLength;
 	}
 
 	private async save(button: HTMLButtonElement, error: HTMLElement): Promise<void> {
@@ -140,53 +167,12 @@ export class AppearanceModal extends Modal {
 		}
 	}
 
-	private previewRows: Array<{ path: string; el: HTMLElement; titleEl: HTMLElement; isFolder: boolean; relation: 'root' | 'ancestor' | 'descendant' }> = [];
+	private previewTree: PreviewTree | null = null;
 
 	private renderPreview(container: HTMLElement): void {
 		const preview = container.createDiv('ft-live-preview');
 		preview.createDiv({ text: 'Preview', cls: 'ft-live-preview__label' });
-		this.previewRows = [];
-		const tree = preview.createDiv('ft-preview-tree');
-		
-		const createFolderRow = (parent: HTMLElement, name: string, path: string, relation: 'root' | 'ancestor' | 'descendant', collapsed: boolean = false) => {
-			const folderContainer = parent.createDiv('nav-folder');
-			const titleRow = folderContainer.createDiv('ft-live-preview__row ft-live-preview__folder-title nav-folder-title');
-			const icon = titleRow.createDiv('nav-folder-collapse-indicator collapse-icon' + (collapsed ? ' is-collapsed' : ''));
-			setIcon(icon, collapsed ? 'chevron-right' : 'chevron-down');
-			titleRow.createSpan({ text: name, cls: 'ft-live-preview__name nav-folder-title-content' });
-			this.previewRows.push({ path, el: folderContainer, titleEl: titleRow, isFolder: true, relation });
-			const childrenContainer = folderContainer.createDiv('nav-folder-children ft-preview-children');
-			if (collapsed) childrenContainer.hide();
-			return { folderContainer, childrenContainer };
-		};
-
-		const createFileRow = (parent: HTMLElement, name: string, path: string, relation: 'root' | 'ancestor' | 'descendant') => {
-			const row = parent.createDiv('ft-live-preview__row nav-file');
-			row.createDiv('nav-folder-collapse-indicator collapse-icon'); // empty spacer
-			row.createSpan({ text: name, cls: 'ft-live-preview__name nav-file-title-content' });
-			this.previewRows.push({ path, el: row, titleEl: row, isFolder: false, relation });
-			return row;
-		};
-
-		const rootName = this.path.split('/').at(-1) ?? this.path;
-		if (this.isFolder) {
-			const { childrenContainer } = createFolderRow(tree, rootName, this.path, 'root');
-			
-			// Subfolder 1 (Collapsed)
-			const sub1Path = `${this.path}/Subfolder 1`;
-			createFolderRow(childrenContainer, 'Subfolder 1', sub1Path, 'descendant', true);
-
-			// Subfolder 2 and 3 (Expanded)
-			for (let i = 2; i <= 3; i++) {
-				const subfolderPath = `${this.path}/Subfolder ${i}`;
-				const sub = createFolderRow(childrenContainer, `Subfolder ${i}`, subfolderPath, 'descendant');
-				createFileRow(sub.childrenContainer, `File ${i}.1`, `${subfolderPath}/File ${i}.1`, 'descendant');
-			}
-			createFileRow(childrenContainer, 'File 1', `${this.path}/File 1`, 'descendant');
-		} else {
-			createFileRow(tree, rootName, this.path, 'root');
-		}
-
+		this.previewTree = buildPreviewTree(preview, this.path, this.isFolder, 'full');
 		this.updateModalPreview();
 	}
 
@@ -196,68 +182,7 @@ export class AppearanceModal extends Modal {
 	}
 
 	private updateModalPreview(): void {
-		const appearanceRules = { ...this.toolkit.settings.appearanceRules };
-		if (Object.keys(this.draft).length === 0) delete appearanceRules[this.path];
-		else appearanceRules[this.path] = structuredClone(this.draft);
-		const settings = { ...this.toolkit.settings, appearanceRules };
-		const previewOrder = [this.path, `${this.path}/Subfolder 1`, `${this.path}/Subfolder 2`, `${this.path}/Subfolder 3`];
-		const context = {
-			settings,
-			getDescendantIndex: (p: string) => {
-				const i = previewOrder.indexOf(p);
-				return Math.max(0, i - 1);
-			},
-		};
-
-		for (const { path, el, titleEl, isFolder, relation } of this.previewRows) {
-			const appearance = resolveAppearance(path, { ...context, isFolder });
-			const directBackground = appearanceRules[path]?.background;
-			const directHasColor = directBackground !== undefined && directBackground.choice.kind !== 'none';
-			const directBlocks = directBackground?.choice.kind === 'none';
-			const directCascades = isFolder && directBackground?.cascade === true;
-			titleEl.classList.toggle('ft-preview-has-text', appearance.text !== null);
-			titleEl.classList.toggle('ft-preview-is-bold', appearance.bold === true);
-			titleEl.classList.toggle('ft-preview-is-strikethrough', appearance.strikethrough === true);
-			el.classList.toggle('ft-preview-background-cascade', directHasColor && directCascades);
-			el.classList.toggle('ft-preview-background-block', directBlocks === true);
-			el.classList.toggle('ft-preview-background-block-cascade', directBlocks === true && directCascades);
-			titleEl.classList.toggle(
-				'ft-preview-has-background',
-				appearance.background !== null && ((directHasColor && !directCascades) || (!directBackground && relation === 'root')),
-			);
-			
-			const hasBorder = appearance.border !== null;
-			el.classList.toggle('ft-preview-border-box', !!(hasBorder && appearance.border?.style === 'box'));
-			el.classList.toggle('ft-preview-border-rail', !!(hasBorder && appearance.border?.style === 'rail'));
-			el.classList.toggle('ft-preview-border-shaded', !!(hasBorder && appearance.border?.shading));
-
-			for (const property of ['--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-text-strength', '--ft-preview-background', '--ft-preview-background-strength', '--ft-preview-border', '--ft-preview-border-strength', '--ft-preview-border-width']) {
-				el.style.removeProperty(property);
-				titleEl.style.removeProperty(property);
-			}
-
-			if (appearance.text) {
-				el.style.setProperty('--ft-preview-text-light', appearance.text.foregroundLight);
-				el.style.setProperty('--ft-preview-text-dark', appearance.text.foregroundDark);
-				if (appearance.text.strength !== undefined) el.style.setProperty('--ft-preview-text-strength', `${appearance.text.strength}%`);
-			}
-			if (appearance.background) {
-				el.style.setProperty('--ft-preview-background', appearance.background.hex);
-				titleEl.style.setProperty('--ft-preview-background', appearance.background.hex);
-				if (appearance.background.strength !== undefined) {
-					el.style.setProperty('--ft-preview-background-strength', `${appearance.background.strength}%`);
-					titleEl.style.setProperty('--ft-preview-background-strength', `${appearance.background.strength}%`);
-				}
-			}
-			if (hasBorder && appearance.border) {
-				el.style.setProperty('--ft-preview-border', appearance.border.color.hex);
-				if (appearance.border.color.strength !== undefined) el.style.setProperty('--ft-preview-border-strength', `${appearance.border.color.strength}%`);
-				const thicknessMap = appearance.border.style === 'box'
-					? { thin: '1px', medium: '2px', thick: '3px' }
-					: { thin: '2px', medium: '4px', thick: '6px' };
-				el.style.setProperty('--ft-preview-border-width', thicknessMap[appearance.border.thickness ?? 'thin']);
-			}
-		}
+		if (this.previewTree) stylePreviewTree(this.previewTree, this.toolkit.settings, this.path, this.draft);
 	}
 
 	private renderBackground(container: HTMLElement): void {

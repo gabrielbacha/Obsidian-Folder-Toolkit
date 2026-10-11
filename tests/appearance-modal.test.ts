@@ -120,14 +120,14 @@ describe("AppearanceModal immediate controls", () => {
 		}, ["Sibling A", "Sibling B"]);
 		const presetButtons = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")];
 		expect(presetButtons.map((button) => button.querySelector(".ft-appearance-preset__label")?.textContent)).toEqual([
-			"Grouping folder", "Muted", "Highlight", "Section rail", "Minimal label",
+			"Grouping folder", "Shaded box", "Section rail", "Minimal label", "Highlight", "Attention", "Muted", "Archived",
 		]);
 		presetButtons[0].click();
 		expect(latestDraft().background).toEqual({ choice: { kind: "preset", slot: 2, strength: 14 }, cascade: false });
 		expect(latestDraft().border).toMatchObject({ style: "box", color: { kind: "preset", slot: 2 } });
 		expect(latestDraft().descendants).toEqual({ enabled: true, style: "rail", thickness: "thin", shading: true });
 
-		const muted = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")].find((button) => button.textContent?.includes("Muted"))!;
+		const muted = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")].find((button) => button.querySelector(".ft-appearance-preset__label")?.textContent === "Muted")!;
 		muted.click();
 		expect(latestDraft()).toEqual({ background: { choice: { kind: "custom", hex: "#A8ADB5", strength: 16 }, cascade: true } });
 		[...modal.contentEl.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reset to inherited")!.click();
@@ -145,5 +145,52 @@ describe("AppearanceModal immediate controls", () => {
 		});
 		expect([...modal.contentEl.querySelectorAll<HTMLInputElement>(".ft-cascade-control input")].every((checkbox) => checkbox.checked)).toBe(true);
 		modal.onClose();
+	});
+
+	it("offers file presets that replace the draft with single-row styling", () => {
+		const { modal, latestDraft } = harness(false);
+		const presetButtons = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")];
+		expect(presetButtons.map((button) => button.querySelector(".ft-appearance-preset__label")?.textContent)).toEqual([
+			"Important", "Index note", "Tinted", "Highlight", "Attention", "Draft", "Done", "Muted",
+		]);
+		presetButtons[0].click();
+		expect(latestDraft()).toEqual({
+			background: { choice: { kind: "preset", slot: 0, strength: 14 }, cascade: false },
+			text: { color: { kind: "preset", slot: 0, strength: 100 }, bold: true, strikethrough: false, cascade: false },
+		});
+		expect(modal.contentEl.querySelectorAll(".ft-cascade-control").length).toBe(0);
+		const done = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")].find((button) => button.querySelector(".ft-appearance-preset__label")?.textContent === "Done")!;
+		done.click();
+		expect(latestDraft()).toEqual({
+			text: { color: { kind: "custom", hex: "#A8ADB5", strength: 100 }, bold: false, strikethrough: true, cascade: false },
+		});
+		modal.onClose();
+	});
+
+	it("renders a live styled sample inside every preset button", () => {
+		const folderHarness = harness(true);
+		const folderButtons = [...folderHarness.modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")];
+		const sampleOf = (buttons: HTMLButtonElement[], label: string) => buttons
+			.find((button) => button.querySelector(".ft-appearance-preset__label")?.textContent === label)!
+			.querySelector<HTMLElement>(".ft-appearance-preset__sample")!;
+		for (const button of folderButtons) {
+			expect(button.querySelector(".ft-appearance-preset__sample .ft-preview-tree--compact")).not.toBeNull();
+		}
+		const grouping = sampleOf(folderButtons, "Grouping folder");
+		const groupingRoot = grouping.querySelector<HTMLElement>(".nav-folder")!;
+		expect(groupingRoot.classList.contains("ft-preview-border-box")).toBe(true);
+		expect(grouping.querySelectorAll(".nav-folder.ft-preview-border-rail").length).toBe(2);
+		expect(sampleOf(folderButtons, "Muted").querySelector(".nav-folder")!.classList.contains("ft-preview-background-cascade")).toBe(true);
+		expect(sampleOf(folderButtons, "Archived").querySelectorAll(".ft-preview-has-text").length).toBeGreaterThan(1);
+		folderHarness.modal.onClose();
+
+		const fileHarness = harness(false);
+		const fileButtons = [...fileHarness.modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")];
+		const doneRows = sampleOf(fileButtons, "Done").querySelectorAll<HTMLElement>(".nav-file");
+		expect(doneRows.length).toBe(2);
+		expect(doneRows[0].classList.contains("ft-preview-is-strikethrough")).toBe(false);
+		expect(doneRows[1].classList.contains("ft-preview-is-strikethrough")).toBe(true);
+		expect(sampleOf(fileButtons, "Index note").querySelectorAll(".nav-file.ft-preview-border-box").length).toBe(1);
+		fileHarness.modal.onClose();
 	});
 });
