@@ -136,6 +136,21 @@ describe("AppearanceModal immediate controls", () => {
 		modal.onClose();
 	});
 
+	it("places collapsed presets after the controls and keeps their open state across rerenders", () => {
+		const { modal } = harness(true);
+		const children = [...modal.contentEl.children];
+		const presets = modal.contentEl.querySelector<HTMLDetailsElement>("details.ft-appearance-presets")!;
+		expect(presets.open).toBe(false);
+		expect(children.indexOf(presets)).toBeGreaterThan(children.indexOf(modal.contentEl.querySelector(".ft-appearance-layout")!));
+		expect(children.at(-1)?.classList.contains("ft-modal-footer")).toBe(true);
+		expect(modal.contentEl.querySelector(".ft-modal-footer .ft-field-error")).not.toBeNull();
+		presets.open = true;
+		presets.dispatchEvent(new Event("toggle"));
+		presets.querySelector<HTMLButtonElement>(".ft-appearance-preset")!.click();
+		expect(modal.contentEl.querySelector<HTMLDetailsElement>("details.ft-appearance-presets")?.open).toBe(true);
+		modal.onClose();
+	});
+
 	it("preserves descendant settings already saved on a folder", () => {
 		const { modal } = harness(true, {
 			Folder: {

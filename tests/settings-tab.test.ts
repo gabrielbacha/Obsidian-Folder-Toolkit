@@ -37,9 +37,13 @@ function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
 	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false };
 	const removeConditionalFormat = vi.fn().mockResolvedValue(undefined);
 	const addConditionalFormat = vi.fn<() => Promise<string>>();
+	const updateConditionalFormat = vi.fn().mockResolvedValue(undefined);
+	const previewConditionalFormat = vi.fn();
+	const clearConditionalFormatPreview = vi.fn();
 	const toolkit = Object.assign(Object.create(FolderToolkitPlugin.prototype), {
 		app: {}, settings,
-		addConditionalFormat, updateConditionalFormat: vi.fn().mockResolvedValue(undefined),
+		addConditionalFormat, updateConditionalFormat,
+		previewConditionalFormat, clearConditionalFormatPreview,
 		moveConditionalFormat: vi.fn().mockResolvedValue(undefined), removeConditionalFormat,
 	}) as FolderToolkitPlugin;
 	const tab = new FolderToolkitSettingTab(toolkit);
@@ -54,7 +58,7 @@ function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
 		const cleanup = conditionalRenderer.renderConditionalFormats(setting);
 		return { settingEl, cleanup };
 	};
-	return { toolkit, tab, update, render, removeConditionalFormat, addConditionalFormat, settings };
+	return { toolkit, tab, update, render, removeConditionalFormat, addConditionalFormat, updateConditionalFormat, previewConditionalFormat, clearConditionalFormatPreview, settings };
 }
 
 describe("name-rule settings UI", () => {
@@ -100,22 +104,54 @@ describe("name-rule settings UI", () => {
 		view.cleanup?.();
 	});
 
-	it("activates a remembered border from the conditional editor", async () => {
+	it("edits a draft and saves the rule only after Save", async () => {
 		const borderRule = rule("border", "archive");
-		const { render, tab, settings, update } = harness([borderRule]);
+		const { render, tab, settings, update, updateConditionalFormat, previewConditionalFormat, clearConditionalFormatPreview } = harness([borderRule]);
 		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("border");
 		const view = render();
+		const save = [...view.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-footer button")].find((button) => button.textContent === "Save")!;
+		expect(save.disabled).toBe(true);
 		const borderCard = view.settingEl.querySelector<HTMLElement>(".ft-conditional-editor .ft-color-card--border")!;
 		const toggle = borderCard.querySelector<HTMLInputElement>("input[type=checkbox]")!;
 		expect(toggle.checked).toBe(false);
 		expect(borderCard.querySelector<HTMLButtonElement>(".ft-swatch")?.disabled).toBe(true);
 		toggle.checked = true;
 		toggle.dispatchEvent(new Event("change"));
-		await Promise.resolve();
-		expect(settings.conditionalFormats[0]?.borderEnabled).toBe(true);
-		expect(settings.conditionalFormats[0]?.border).toMatchObject({ style: "box", thickness: "thin" });
+		expect(settings.conditionalFormats[0]?.borderEnabled).toBeUndefined();
+		expect(previewConditionalFormat.mock.lastCall?.[0]).toMatchObject({ borderEnabled: true });
 		expect(update).toHaveBeenCalled();
 		view.cleanup?.();
+
+		const rerendered = render();
+		expect(rerendered.settingEl.querySelector(".ft-conditional-status")?.textContent).toBe("Unsaved changes");
+		expect(rerendered.settingEl.querySelector<HTMLElement>(".ft-style-badge--unsaved")?.hidden).toBe(false);
+		const saveAgain = [...rerendered.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-footer button")].find((button) => button.textContent === "Save")!;
+		expect(saveAgain.disabled).toBe(false);
+		saveAgain.click();
+		await Promise.resolve();
+		expect(updateConditionalFormat.mock.lastCall?.[0]).toBe("border");
+		expect(updateConditionalFormat.mock.lastCall?.[1]).toMatchObject({ borderEnabled: true, border: { style: "box", thickness: "thin" } });
+		expect(clearConditionalFormatPreview).toHaveBeenCalledWith("border");
+		rerendered.cleanup?.();
+	});
+
+	it("discards a draft on Cancel without saving", () => {
+		const { render, tab, updateConditionalFormat, clearConditionalFormatPreview } = harness([rule("one", "__system")]);
+		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("one");
+		const view = render();
+		const pattern = view.settingEl.querySelector<HTMLInputElement>(".ft-conditional-editor input[type=text]")!;
+		pattern.value = "__archive";
+		pattern.dispatchEvent(new Event("input"));
+		expect(view.settingEl.querySelector(".ft-conditional-summary__pattern")?.textContent).toBe("__archive");
+		const cancel = [...view.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-footer button")].find((button) => button.textContent === "Cancel")!;
+		expect(cancel.disabled).toBe(false);
+		cancel.click();
+		expect(clearConditionalFormatPreview).toHaveBeenCalledWith("one");
+		expect(updateConditionalFormat).not.toHaveBeenCalled();
+		view.cleanup?.();
+		const fresh = render();
+		expect(fresh.settingEl.querySelector<HTMLInputElement>(".ft-conditional-editor input[type=text]")?.value).toBe("__system");
+		fresh.cleanup?.();
 	});
 
 	it("opens and focuses a newly added rule", async () => {
@@ -136,6 +172,31 @@ describe("name-rule settings UI", () => {
 		expect(document.activeElement).toBe(pattern);
 		added.cleanup?.();
 		added.settingEl.remove();
+	});
+
+	it("scrolls to the name rules on the next render after a reveal request", () => {
+		const { tab, render } = harness();
+		Object.assign(tab, { containerEl: document.createElement("div") });
+		const scroll = vi.fn();
+		HTMLElement.prototype.scrollIntoView = scroll;
+		tab.revealConditionalFormats();
+		expect(scroll).not.toHaveBeenCalled();
+		const first = render();
+		expect(scroll).toHaveBeenCalledOnce();
+		first.cleanup?.();
+		render().cleanup?.();
+		expect(scroll).toHaveBeenCalledOnce();
+	});
+
+	it("scrolls immediately when the name rules are already on screen", () => {
+		const { tab, render } = harness();
+		const view = render();
+		Object.assign(tab, { containerEl: document.body });
+		const scroll = vi.fn();
+		HTMLElement.prototype.scrollIntoView = scroll;
+		tab.revealConditionalFormats();
+		expect(scroll).toHaveBeenCalledOnce();
+		view.cleanup?.();
 	});
 
 	it("disables unavailable moves and asks for confirmation before deletion", () => {

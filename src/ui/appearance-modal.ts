@@ -28,6 +28,7 @@ export class AppearanceModal extends Modal {
 	private rememberedDescendants: DescendantRule;
 	private textCascade: boolean;
 	private backgroundCascade: boolean;
+	private presetsOpen = false;
 
 	constructor(
 		private readonly toolkit: FolderToolkitPlugin,
@@ -69,7 +70,6 @@ export class AppearanceModal extends Modal {
 		this.clearPickerListeners();
 		this.contentEl.empty();
 		this.contentEl.addClass('ft-appearance-modal', this.isFolder ? 'ft-appearance-modal--folder' : 'ft-appearance-modal--file');
-		this.renderPresets();
 		const layout = this.contentEl.createDiv('ft-appearance-layout');
 		const previewPane = layout.createDiv('ft-appearance-preview-pane');
 		this.renderPreview(previewPane);
@@ -78,8 +78,10 @@ export class AppearanceModal extends Modal {
 		this.renderBorder(cards);
 		this.renderText(cards);
 		if (this.isFolder) this.renderDescendants(cards);
+		this.renderPresets();
 
 		const footer = this.contentEl.createDiv('ft-modal-footer');
+		const error = footer.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
 		const clear = footer.createEl('button', { text: 'Reset to inherited', attr: { type: 'button' } });
 		clear.addEventListener('click', () => {
 			this.draft = {};
@@ -90,17 +92,17 @@ export class AppearanceModal extends Modal {
 		const cancel = footer.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
 		cancel.addEventListener('click', () => this.close());
 		const save = footer.createEl('button', { text: 'Save', cls: 'mod-cta', attr: { type: 'button' } });
-		const error = this.contentEl.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
-		footer.before(error);
 		save.addEventListener('click', () => { void this.save(save, error); });
 		this.refreshPreview();
 	}
 
 	private renderPresets(): void {
-		const section = this.contentEl.createEl('section', { cls: 'ft-appearance-presets' });
-		const heading = section.createDiv('ft-appearance-presets__header');
-		heading.createDiv({ text: 'Presets', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '2' } });
-		heading.createDiv({ text: 'Apply a starting style, then adjust any control before saving.', cls: 'ft-appearance-presets__hint' });
+		const section = this.contentEl.createEl('details', { cls: 'ft-appearance-presets' });
+		section.open = this.presetsOpen;
+		section.addEventListener('toggle', () => { this.presetsOpen = section.open; });
+		const heading = section.createEl('summary', { cls: 'ft-appearance-presets__header' });
+		heading.createSpan({ text: 'Presets', cls: 'ft-card-title' });
+		heading.createSpan({ text: 'Replace all settings above with a starting style.', cls: 'ft-appearance-presets__hint' });
 		const list = section.createDiv('ft-appearance-presets__list');
 		const presets: ReadonlyArray<{ id: FolderAppearancePresetId | FileAppearancePresetId; label: string; description: string }> = this.isFolder
 			? FOLDER_APPEARANCE_PRESETS

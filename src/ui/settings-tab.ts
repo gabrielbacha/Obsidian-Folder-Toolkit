@@ -3,7 +3,7 @@ import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
 import { isBackgroundEnabled, isBorderEnabled, isFontEnabled } from '../conditional-format';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, ColorChoice, ConditionalMatch, ConditionalTarget } from '../types';
+import type { AppearanceRule, ColorChoice, ConditionalFormatRule, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
@@ -13,6 +13,9 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 	private search = '';
 	private readonly expandedConditionalIds = new Set<string>();
 	private pendingConditionalFocusId: string | null = null;
+	private pendingConditionalReveal = false;
+	/** Unsaved edits to name rules, keyed by rule id. Saved rules stay untouched until Save. */
+	private readonly conditionalDrafts = new Map<string, ConditionalFormatRule>();
 
 	constructor(private readonly toolkit: FolderToolkitPlugin) {
 		super(toolkit.app, toolkit);
@@ -183,6 +186,32 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		}
 	}
 
+	hide(): void {
+		for (const id of [...this.conditionalDrafts.keys()]) this.discardConditionalDraft(id);
+		super.hide();
+	}
+
+	private conditionalDraft(rule: ConditionalFormatRule): ConditionalFormatRule {
+		let draft = this.conditionalDrafts.get(rule.id);
+		if (!draft) {
+			draft = structuredClone(rule);
+			this.conditionalDrafts.set(rule.id, draft);
+		}
+		return draft;
+	}
+
+	private discardConditionalDraft(id: string): void {
+		this.conditionalDrafts.delete(id);
+		this.toolkit.clearConditionalFormatPreview(id);
+	}
+
+	/** Scrolls to the name rules now if they are on screen, or after the next render. */
+	revealConditionalFormats(): void {
+		const section = this.containerEl.querySelector<HTMLElement>('.ft-conditional-setting');
+		if (section?.isConnected) scrollToSection(section);
+		else this.pendingConditionalReveal = true;
+	}
+
 	private renderConditionalFormats(setting: Setting): () => void {
 		setting.setName('Name rules').setHeading();
 		setting.settingEl.addClass('ft-conditional-setting');
@@ -200,6 +229,11 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			});
 		});
 
+		if (this.pendingConditionalReveal) {
+			this.pendingConditionalReveal = false;
+			scrollToSection(setting.settingEl);
+		}
+
 		if (this.toolkit.settings.conditionalFormats.length === 0) {
 			wrapper.createDiv({ text: 'No name rules yet. Add a rule to style matching files or folders.', cls: 'ft-empty-state' });
 		}
@@ -208,6 +242,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		const matchLabels: Record<ConditionalMatch, string> = { equals: 'is exactly', startsWith: 'starts with', endsWith: 'ends with', contains: 'contains' };
 		for (const [index, rule] of this.toolkit.settings.conditionalFormats.entries()) {
 			const expanded = this.expandedConditionalIds.has(rule.id);
+			const shown = this.conditionalDrafts.get(rule.id) ?? rule;
 			const card = wrapper.createDiv(`ft-conditional-card${expanded ? ' is-expanded' : ''}`);
 			const header = card.createDiv('ft-conditional-summary-row');
 			const disclosure = header.createEl('button', {
@@ -215,17 +250,19 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				attr: { type: 'button', 'aria-expanded': String(expanded), 'aria-controls': `ft-rule-editor-${rule.id}` },
 			});
 			const summary = disclosure.createSpan('ft-conditional-summary');
-			summary.createSpan({ text: targetLabels[rule.target], cls: 'ft-conditional-summary__target' });
-			summary.createSpan({ text: matchLabels[rule.match], cls: 'ft-conditional-summary__match' });
-			summary.createSpan({ text: rule.pattern || 'Unnamed rule', cls: `ft-conditional-summary__pattern${rule.pattern ? '' : ' is-empty'}` });
+			summary.createSpan({ text: targetLabels[shown.target], cls: 'ft-conditional-summary__target' });
+			summary.createSpan({ text: matchLabels[shown.match], cls: 'ft-conditional-summary__match' });
+			const patternSummary = summary.createSpan({ text: shown.pattern || 'Unnamed rule', cls: `ft-conditional-summary__pattern${shown.pattern ? '' : ' is-empty'}` });
 			const badges = summary.createSpan('ft-conditional-summary__badges');
-			if (isFontEnabled(rule)) this.renderStyleBadge(badges, 'Font', rule.color);
-			if (isBackgroundEnabled(rule)) this.renderStyleBadge(badges, 'Background', rule.backgroundColor ?? rule.color);
-			if (isBorderEnabled(rule) && rule.border) {
-				this.renderStyleBadge(badges, rule.border.style === 'box' ? 'Border · Box' : 'Border · Rail', rule.border.color);
+			const unsavedBadge = badges.createSpan({ text: 'Unsaved', cls: 'ft-style-badge ft-style-badge--unsaved' });
+			unsavedBadge.hidden = sameConditionalRule(shown, rule);
+			if (isFontEnabled(shown)) this.renderStyleBadge(badges, 'Font', shown.color);
+			if (isBackgroundEnabled(shown)) this.renderStyleBadge(badges, 'Background', shown.backgroundColor ?? shown.color);
+			if (isBorderEnabled(shown) && shown.border) {
+				this.renderStyleBadge(badges, shown.border.style === 'box' ? 'Border · Box' : 'Border · Rail', shown.border.color);
 			}
-			if (rule.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
-			if (rule.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
+			if (shown.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
+			if (shown.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
 			const chevron = disclosure.createSpan('ft-conditional-disclosure__chevron');
 			setIcon(chevron, expanded ? 'chevron-up' : 'chevron-down');
 			disclosure.addEventListener('click', () => {
@@ -248,6 +285,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			remove.addEventListener('click', () => {
 				new ConfirmRemoveModal(this.toolkit.app, rule.pattern || 'Unnamed rule', async () => {
 					await this.toolkit.removeConditionalFormat(rule.id);
+					this.conditionalDrafts.delete(rule.id);
 					this.expandedConditionalIds.delete(rule.id);
 					this.update();
 				}, {
@@ -258,33 +296,30 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			});
 			if (!expanded) continue;
 
+			const edit = this.conditionalDraft(rule);
 			const editor = card.createDiv({ cls: 'ft-conditional-editor', attr: { id: `ft-rule-editor-${rule.id}` } });
-			const error = editor.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
-			const save = async (rerender = false): Promise<void> => {
-				try {
-					await this.toolkit.updateConditionalFormat(rule.id, rule);
-					if (rerender) this.update();
-				} catch {
-					error.setText('This rule could not be saved. Try again.');
-					error.addClass('is-visible');
-				}
+			let refreshFooter = (): void => {};
+			const change = (rerender = false): void => {
+				this.toolkit.previewConditionalFormat(edit);
+				if (rerender) this.update();
+				else refreshFooter();
 			};
 			const meta = editor.createDiv('ft-conditional-meta-row');
 			const targetLabel = meta.createEl('label', { text: 'Apply to' });
 			const target = targetLabel.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
 			for (const [value, label] of Object.entries(targetLabels)) target.createEl('option', { text: label, value });
-			target.value = rule.target;
-			target.addEventListener('change', () => { rule.target = target.value as ConditionalTarget; void save(true); });
+			target.value = edit.target;
+			target.addEventListener('change', () => { edit.target = target.value as ConditionalTarget; change(true); });
 			const matchLabel = meta.createEl('label', { text: 'Name' });
 			const match = matchLabel.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
 			for (const [value, label] of Object.entries(matchLabels)) match.createEl('option', { text: label.charAt(0).toUpperCase() + label.slice(1), value });
-			match.value = rule.match;
-			match.addEventListener('change', () => { rule.match = match.value as ConditionalMatch; void save(true); });
+			match.value = edit.match;
+			match.addEventListener('change', () => { edit.match = match.value as ConditionalMatch; change(true); });
 			const patternErrorId = `ft-rule-pattern-error-${index}`;
 			const patternLabel = meta.createEl('label', { text: 'Pattern' });
 			const pattern = patternLabel.createEl('input', {
 				type: 'text',
-				value: rule.pattern,
+				value: edit.pattern,
 				placeholder: '__system',
 				attr: { 'aria-label': 'Name pattern', 'aria-describedby': patternErrorId, spellcheck: 'false' },
 			});
@@ -301,8 +336,18 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				return !invalid;
 			};
 			validatePattern();
-			pattern.addEventListener('input', validatePattern);
-			pattern.addEventListener('change', () => { rule.pattern = pattern.value; void save(true); });
+			pattern.addEventListener('input', () => {
+				validatePattern();
+				edit.pattern = pattern.value;
+				patternSummary.setText(edit.pattern || 'Unnamed rule');
+				patternSummary.toggleClass('is-empty', !edit.pattern);
+				change();
+			});
+			pattern.addEventListener('keydown', (event) => {
+				if (event.key !== 'Enter') return;
+				event.preventDefault();
+				void saveDraft();
+			});
 			if (this.pendingConditionalFocusId === rule.id) {
 				this.pendingConditionalFocusId = null;
 				window.requestAnimationFrame(() => pattern.focus());
@@ -314,18 +359,18 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			backgroundHeader.createDiv({ text: 'Background', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
 			const backgroundToggle = backgroundHeader.createEl('label', { cls: 'ft-border-toggle' });
 			const backgroundCheck = backgroundToggle.createEl('input', { attr: { type: 'checkbox' } });
-			backgroundCheck.checked = isBackgroundEnabled(rule);
+			backgroundCheck.checked = isBackgroundEnabled(edit);
 			backgroundToggle.createSpan({ text: 'Enable background' });
-			backgroundCheck.addEventListener('change', () => { rule.backgroundEnabled = backgroundCheck.checked; void save(true); });
-			const backgroundChoice = rule.backgroundColor ?? { kind: 'custom' as const, hex: '#A8ADB5', strength: 20 };
+			backgroundCheck.addEventListener('change', () => { edit.backgroundEnabled = backgroundCheck.checked; change(true); });
+			const backgroundChoice = edit.backgroundColor ?? { kind: 'custom' as const, hex: '#A8ADB5', strength: 20 };
 			controls.renderColorControls(backgroundCard, {
 				selected: backgroundChoice,
 				defaultStrength: 20,
 				disabled: !backgroundCheck.checked,
 				onSelect: (choice, rerender) => {
 					if (!choice || choice.kind === 'none') return;
-					rule.backgroundColor = choice;
-					void save(rerender);
+					edit.backgroundColor = choice;
+					change(rerender);
 				},
 			});
 
@@ -334,28 +379,28 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			borderHeader.createDiv({ text: 'Border', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
 			const borderToggle = borderHeader.createEl('label', { cls: 'ft-border-toggle' });
 			const borderCheck = borderToggle.createEl('input', { attr: { type: 'checkbox' } });
-			borderCheck.checked = isBorderEnabled(rule);
+			borderCheck.checked = isBorderEnabled(edit);
 			borderToggle.createSpan({ text: 'Enable border' });
-			const border = rule.border ?? { style: 'box' as const, color: { kind: 'preset' as const, slot: 0, strength: 42 }, thickness: 'thin' as const };
+			const border = edit.border ?? { style: 'box' as const, color: { kind: 'preset' as const, slot: 0, strength: 42 }, thickness: 'thin' as const };
 			borderCheck.addEventListener('change', () => {
-				rule.borderEnabled = borderCheck.checked;
-				if (borderCheck.checked && !rule.border) rule.border = structuredClone(border);
-				void save(true);
+				edit.borderEnabled = borderCheck.checked;
+				if (borderCheck.checked && !edit.border) edit.border = structuredClone(border);
+				change(true);
 			});
 			const borderStyles = borderCard.createDiv('ft-choice-row');
 			controls.choiceButton(borderStyles, 'Rounded box', border.style === 'box', () => {
-				rule.border = { ...border, style: 'box' };
-				void save(true);
+				edit.border = { ...border, style: 'box' };
+				change(true);
 			}, !borderCheck.checked);
 			controls.choiceButton(borderStyles, 'Vertical rail', border.style === 'rail', () => {
-				rule.border = { ...border, style: 'rail' };
-				void save(true);
+				edit.border = { ...border, style: 'rail' };
+				change(true);
 			}, !borderCheck.checked);
 			const thickness = borderCard.createDiv('ft-choice-row');
 			for (const size of ['thin', 'medium', 'thick'] as const) {
 				controls.choiceButton(thickness, size.charAt(0).toUpperCase() + size.slice(1), border.thickness === size, () => {
-					rule.border = { ...border, thickness: size };
-					void save(true);
+					edit.border = { ...border, thickness: size };
+					change(true);
 				}, !borderCheck.checked);
 			}
 			controls.renderColorControls(borderCard, {
@@ -364,8 +409,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				disabled: !borderCheck.checked,
 				onSelect: (choice, rerender) => {
 					if (!choice || choice.kind === 'none') return;
-					rule.border = { ...border, color: choice };
-					void save(rerender);
+					edit.border = { ...border, color: choice };
+					change(rerender);
 				},
 			});
 
@@ -374,25 +419,58 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			textHeader.createDiv({ text: 'Text', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
 			const fontToggle = textHeader.createEl('label', { cls: 'ft-border-toggle' });
 			const fontCheck = fontToggle.createEl('input', { attr: { type: 'checkbox' } });
-			fontCheck.checked = isFontEnabled(rule);
+			fontCheck.checked = isFontEnabled(edit);
 			fontToggle.createSpan({ text: 'Font color' });
-			fontCheck.addEventListener('change', () => { rule.fontEnabled = fontCheck.checked; void save(true); });
+			fontCheck.addEventListener('change', () => { edit.fontEnabled = fontCheck.checked; change(true); });
 			controls.renderColorControls(textCard, {
-				selected: rule.color,
+				selected: edit.color,
 				defaultStrength: 100,
 				includeWhite: true,
 				disabled: !fontCheck.checked,
 				onSelect: (choice, rerender) => {
 					if (!choice || choice.kind === 'none') return;
-					rule.color = choice;
-					void save(rerender);
+					edit.color = choice;
+					change(rerender);
 				},
 			});
-			controls.renderTypography(textCard, rule.bold === true, rule.strikethrough === true, (bold, strikethrough) => {
-				rule.bold = bold;
-				rule.strikethrough = strikethrough;
-				void save(true);
+			controls.renderTypography(textCard, edit.bold === true, edit.strikethrough === true, (bold, strikethrough) => {
+				edit.bold = bold;
+				edit.strikethrough = strikethrough;
+				change(true);
 			});
+
+			const footer = card.createDiv('ft-conditional-footer');
+			const status = footer.createSpan({ cls: 'ft-conditional-status', attr: { role: 'status' } });
+			const error = footer.createSpan({ cls: 'ft-field-error', attr: { role: 'alert' } });
+			const cancel = footer.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
+			const saveButton = footer.createEl('button', { text: 'Save', cls: 'mod-cta', attr: { type: 'button' } });
+			refreshFooter = () => {
+				const dirty = !sameConditionalRule(edit, rule);
+				status.setText(dirty ? 'Unsaved changes' : 'All changes saved');
+				status.toggleClass('is-dirty', dirty);
+				unsavedBadge.hidden = !dirty;
+				cancel.disabled = !dirty;
+				saveButton.disabled = !dirty;
+			};
+			const saveDraft = async (): Promise<void> => {
+				if (sameConditionalRule(edit, rule)) return;
+				saveButton.disabled = true;
+				try {
+					await this.toolkit.updateConditionalFormat(rule.id, edit);
+					this.discardConditionalDraft(rule.id);
+					this.update();
+				} catch {
+					error.setText('This rule could not be saved. Try again.');
+					error.addClass('is-visible');
+					saveButton.disabled = false;
+				}
+			};
+			cancel.addEventListener('click', () => {
+				this.discardConditionalDraft(rule.id);
+				this.update();
+			});
+			saveButton.addEventListener('click', () => { void saveDraft(); });
+			refreshFooter();
 		}
 
 		return () => {
@@ -541,4 +619,13 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 
 function openExternalLink(url: string): void {
 	window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function scrollToSection(section: HTMLElement): void {
+	// Wait one frame so the settings modal finishes layout before scrolling.
+	window.requestAnimationFrame(() => section.scrollIntoView({ block: 'start' }));
+}
+
+function sameConditionalRule(a: ConditionalFormatRule, b: ConditionalFormatRule): boolean {
+	return JSON.stringify(a) === JSON.stringify(b);
 }

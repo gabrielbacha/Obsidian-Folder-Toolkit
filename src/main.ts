@@ -1,4 +1,4 @@
-import { Menu, Notice, Plugin, TAbstractFile, TFolder } from 'obsidian';
+import { Menu, Notice, Plugin, TAbstractFile, TFolder, type App } from 'obsidian';
 import { ExplorerManager } from './explorer-manager';
 import { AppearancePreviewStore } from './appearance-preview';
 import { normalizePaletteTemplateId } from './colors';
@@ -13,6 +13,7 @@ export default class FolderToolkitPlugin extends Plugin {
 	settings!: FolderToolkitSettings;
 	private explorer!: ExplorerManager;
 	private tabs!: TabManager;
+	private settingTab!: FolderToolkitSettingTab;
 	private focusPath: string | null = null;
 	private readonly appearancePreview = new AppearancePreviewStore();
 
@@ -45,7 +46,14 @@ export default class FolderToolkitPlugin extends Plugin {
 			},
 		});
 
-		this.addSettingTab(new FolderToolkitSettingTab(this));
+		this.addCommand({
+			id: 'open-conditional-formatting',
+			name: 'Open conditional formatting rules',
+			callback: () => this.openConditionalFormatting(),
+		});
+
+		this.settingTab = new FolderToolkitSettingTab(this);
+		this.addSettingTab(this.settingTab);
 		this.app.workspace.onLayoutReady(() => {
 			this.explorer.start();
 			this.tabs.start();
@@ -56,6 +64,17 @@ export default class FolderToolkitPlugin extends Plugin {
 		this.appearancePreview.clearAll();
 		this.explorer?.stop();
 		this.tabs?.stop();
+	}
+
+	openConditionalFormatting(): void {
+		const modal = settingsModal(this.app);
+		if (!modal) {
+			new Notice('Could not open the conditional formatting settings.');
+			return;
+		}
+		modal.open();
+		modal.openTabById(this.manifest.id);
+		this.settingTab.revealConditionalFormats();
 	}
 
 	async setAppearance(path: string, rule: AppearanceRule): Promise<void> {
@@ -105,6 +124,16 @@ export default class FolderToolkitPlugin extends Plugin {
 		await this.persist();
 	}
 
+	previewConditionalFormat(rule: ConditionalFormatRule): void {
+		this.appearancePreview.setConditional(rule);
+		this.explorer.reconcileSoon();
+	}
+
+	clearConditionalFormatPreview(id: string): void {
+		this.appearancePreview.clearConditional(id);
+		this.explorer.reconcileSoon();
+	}
+
 	async addConditionalFormat(): Promise<string> {
 		const id = `conditional-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		this.settings.conditionalFormats.push({
@@ -143,6 +172,7 @@ export default class FolderToolkitPlugin extends Plugin {
 	}
 	async removeConditionalFormat(id: string): Promise<void> {
 		this.settings.conditionalFormats = this.settings.conditionalFormats.filter((rule) => rule.id !== id);
+		this.appearancePreview.clearConditional(id);
 		await this.persist();
 	}
 
@@ -251,4 +281,16 @@ export default class FolderToolkitPlugin extends Plugin {
 		this.explorer.reconcileSoon();
 		this.tabs.reconcileSoon();
 	}
+}
+
+interface SettingsModal {
+	open(): void;
+	openTabById(id: string): unknown;
+}
+
+/** Obsidian has no public API to open a specific settings tab; use the internal modal when it exists. */
+function settingsModal(app: App): SettingsModal | null {
+	const modal = (app as App & { setting?: Partial<SettingsModal> }).setting;
+	if (typeof modal?.open !== 'function' || typeof modal.openTabById !== 'function') return null;
+	return modal as SettingsModal;
 }

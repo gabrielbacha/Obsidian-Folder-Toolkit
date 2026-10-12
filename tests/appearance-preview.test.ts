@@ -75,4 +75,17 @@ describe('AppearancePreviewStore', () => {
 		expect(restored.strikethrough).toBe(false);
 	});
 
+	it("previews a conditional rule draft by id without changing persisted settings", () => {
+		const persisted = { ...settings(), conditionalFormats: [
+			{ id: "one", target: "folder" as const, match: "equals" as const, pattern: "A", color: { kind: "custom" as const, hex: "#111111" } },
+			{ id: "two", target: "folder" as const, match: "equals" as const, pattern: "B", color: { kind: "custom" as const, hex: "#222222" } },
+		] };
+		const previews = new AppearancePreviewStore();
+		previews.setConditional({ ...persisted.conditionalFormats[1], pattern: "C" });
+		expect(previews.apply(persisted).conditionalFormats.map((rule) => rule.pattern)).toEqual(["A", "C"]);
+		expect(persisted.conditionalFormats[1]?.pattern).toBe("B");
+		previews.clearConditional("two");
+		expect(previews.apply(persisted)).toBe(persisted);
+	});
+
 });

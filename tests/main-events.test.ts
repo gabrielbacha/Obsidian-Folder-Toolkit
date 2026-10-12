@@ -58,4 +58,26 @@ describe('workspace refresh events', () => {
 		});
 	});
 
+	describe("open conditional formatting command", () => {
+		it("opens the plugin settings tab and reveals the name rules", () => {
+			const calls: string[] = [];
+			const plugin = Object.create(FolderToolkitPlugin.prototype) as FolderToolkitPlugin;
+			Object.assign(plugin, {
+				app: { setting: { open: () => calls.push("open"), openTabById: (id: string) => calls.push(`tab:${id}`) } },
+				manifest: { id: "folder-toolkit" },
+				settingTab: { revealConditionalFormats: () => calls.push("reveal") },
+			});
+			plugin.openConditionalFormatting();
+			expect(calls).toEqual(["open", "tab:folder-toolkit", "reveal"]);
+		});
+
+		it("does not throw when the settings modal is unavailable", () => {
+			const reveal = vi.fn();
+			const plugin = Object.create(FolderToolkitPlugin.prototype) as FolderToolkitPlugin;
+			Object.assign(plugin, { app: {}, manifest: { id: "folder-toolkit" }, settingTab: { revealConditionalFormats: reveal } });
+			expect(() => plugin.openConditionalFormatting()).not.toThrow();
+			expect(reveal).not.toHaveBeenCalled();
+		});
+	});
+
 });
