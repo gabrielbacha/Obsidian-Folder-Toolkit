@@ -1,4 +1,4 @@
-import type { AppearanceRule, ColorChoice } from './types';
+import type { AppearanceRule, ColorChoice, DescendantRule } from './types';
 
 export interface AppearancePresetDefinition<Id extends string> {
 	id: Id;
@@ -6,11 +6,12 @@ export interface AppearancePresetDefinition<Id extends string> {
 	description: string;
 }
 
+/** Presets that style the folder row itself: background, border, and label. */
 export const FOLDER_APPEARANCE_PRESETS = [
 	{
 		id: 'grouping-folder',
 		label: 'Grouping folder',
-		description: 'Palette-matched background, label, box, and shaded subfolder rails.',
+		description: 'Palette-matched background, label, and box.',
 	},
 	{
 		id: 'shaded-box',
@@ -30,22 +31,56 @@ export const FOLDER_APPEARANCE_PRESETS = [
 	{
 		id: 'highlight',
 		label: 'Highlight',
-		description: 'Yellow background and label across the folder and its descendants.',
+		description: 'Yellow background and label.',
 	},
 	{
 		id: 'attention',
 		label: 'Attention',
-		description: 'Bold red label with a light red background on the folder row.',
+		description: 'Bold red label with a light red background.',
 	},
 	{
 		id: 'muted',
 		label: 'Muted',
-		description: 'Soft gray background across the folder and its descendants.',
+		description: 'Soft gray background.',
 	},
 	{
 		id: 'archived',
 		label: 'Archived',
-		description: 'Gray label and gray descendant text, no background.',
+		description: 'Gray label, no background.',
+	},
+] as const satisfies readonly AppearancePresetDefinition<string>[];
+
+/** Presets that control how a folder's style reaches its subfolders and notes. */
+export const SUBFOLDER_APPEARANCE_PRESETS = [
+	{
+		id: 'folder-only',
+		label: 'Folder only',
+		description: 'Colors stay on the folder row. Subfolders get no style.',
+	},
+	{
+		id: 'inherit-colors',
+		label: 'Inherit colors',
+		description: 'Subfolders and notes take the folder background and label colors.',
+	},
+	{
+		id: 'rails',
+		label: 'Subfolder rails',
+		description: 'Each direct subfolder gets a thin rail in the next palette color.',
+	},
+	{
+		id: 'shaded-rails',
+		label: 'Shaded rails',
+		description: 'Thin palette rails with a light tint inside each direct subfolder.',
+	},
+	{
+		id: 'boxes',
+		label: 'Subfolder boxes',
+		description: 'Each direct subfolder gets a thin box in the next palette color.',
+	},
+	{
+		id: 'shaded-boxes',
+		label: 'Shaded boxes',
+		description: 'Thin palette boxes with a light tint inside each direct subfolder.',
 	},
 ] as const satisfies readonly AppearancePresetDefinition<string>[];
 
@@ -94,6 +129,14 @@ export const FILE_APPEARANCE_PRESETS = [
 
 export type FolderAppearancePresetId = (typeof FOLDER_APPEARANCE_PRESETS)[number]['id'];
 export type FileAppearancePresetId = (typeof FILE_APPEARANCE_PRESETS)[number]['id'];
+export type SubfolderAppearancePresetId = (typeof SUBFOLDER_APPEARANCE_PRESETS)[number]['id'];
+
+/** The part of a folder rule that reaches below the folder row. */
+export interface SubfolderAppearanceState {
+	descendants?: DescendantRule;
+	textCascade: boolean;
+	backgroundCascade: boolean;
+}
 
 const MUTED_GRAY = '#A8ADB5';
 const HIGHLIGHT_YELLOW = '#F1C40F';
@@ -108,6 +151,10 @@ function customChoice(hex: string, strength: number): Exclude<ColorChoice, { kin
 	return { kind: 'custom', hex, strength };
 }
 
+/**
+ * Builds the folder-row part of a folder preset. It never cascades and never
+ * sets subfolder styling; combine it with {@link withSubfolderAppearance}.
+ */
 export function createFolderAppearancePreset(id: FolderAppearancePresetId, paletteSlot: number): AppearanceRule {
 	switch (id) {
 		case 'grouping-folder':
@@ -115,7 +162,6 @@ export function createFolderAppearancePreset(id: FolderAppearancePresetId, palet
 				background: { choice: paletteChoice(paletteSlot, 14), cascade: false },
 				border: { style: 'box', color: paletteChoice(paletteSlot, 42), thickness: 'thin' },
 				text: { color: paletteChoice(paletteSlot, 100), bold: false, strikethrough: false, cascade: false },
-				descendants: { enabled: true, style: 'rail', thickness: 'thin', shading: true },
 			};
 		case 'shaded-box':
 			return {
@@ -132,8 +178,8 @@ export function createFolderAppearancePreset(id: FolderAppearancePresetId, palet
 			};
 		case 'highlight':
 			return {
-				background: { choice: customChoice(HIGHLIGHT_YELLOW, 20), cascade: true },
-				text: { color: customChoice(HIGHLIGHT_YELLOW, 100), bold: false, strikethrough: false, cascade: true },
+				background: { choice: customChoice(HIGHLIGHT_YELLOW, 20), cascade: false },
+				text: { color: customChoice(HIGHLIGHT_YELLOW, 100), bold: false, strikethrough: false, cascade: false },
 			};
 		case 'attention':
 			return {
@@ -142,11 +188,11 @@ export function createFolderAppearancePreset(id: FolderAppearancePresetId, palet
 			};
 		case 'muted':
 			return {
-				background: { choice: customChoice(MUTED_GRAY, 16), cascade: true },
+				background: { choice: customChoice(MUTED_GRAY, 16), cascade: false },
 			};
 		case 'archived':
 			return {
-				text: { color: customChoice(MUTED_GRAY, 100), bold: false, strikethrough: false, cascade: true },
+				text: { color: customChoice(MUTED_GRAY, 100), bold: false, strikethrough: false, cascade: false },
 			};
 	}
 }
@@ -190,6 +236,33 @@ export function createFileAppearancePreset(id: FileAppearancePresetId, paletteSl
 				text: { color: customChoice(MUTED_GRAY, 100), bold: false, strikethrough: false, cascade: false },
 			};
 	}
+}
+
+export function createSubfolderAppearancePreset(id: SubfolderAppearancePresetId): SubfolderAppearanceState {
+	switch (id) {
+		case 'folder-only':
+			return { textCascade: false, backgroundCascade: false };
+		case 'inherit-colors':
+			return { textCascade: true, backgroundCascade: true };
+		case 'rails':
+			return { descendants: { enabled: true, style: 'rail', thickness: 'thin', shading: false }, textCascade: false, backgroundCascade: false };
+		case 'shaded-rails':
+			return { descendants: { enabled: true, style: 'rail', thickness: 'thin', shading: true }, textCascade: false, backgroundCascade: false };
+		case 'boxes':
+			return { descendants: { enabled: true, style: 'box', thickness: 'thin', shading: false }, textCascade: false, backgroundCascade: false };
+		case 'shaded-boxes':
+			return { descendants: { enabled: true, style: 'box', thickness: 'thin', shading: true }, textCascade: false, backgroundCascade: false };
+	}
+}
+
+/** Returns a copy of `rule` whose subfolder styling and cascade flags come from `state`. Folder-row styling is kept. */
+export function withSubfolderAppearance(rule: AppearanceRule, state: SubfolderAppearanceState): AppearanceRule {
+	const next = structuredClone(rule);
+	if (next.text) next.text.cascade = state.textCascade;
+	if (next.background) next.background.cascade = state.backgroundCascade;
+	if (state.descendants) next.descendants = structuredClone(state.descendants);
+	else delete next.descendants;
+	return next;
 }
 
 export function paletteSlotsUsedByAppearance(rule: AppearanceRule | undefined): number[] {

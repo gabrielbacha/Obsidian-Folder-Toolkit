@@ -3,10 +3,13 @@ import {
 	createFileAppearancePreset,
 	createFolderAppearancePreset,
 	FILE_APPEARANCE_PRESETS,
+	createSubfolderAppearancePreset,
 	FOLDER_APPEARANCE_PRESETS,
 	paletteSlotsUsedByAppearance,
-	type FileAppearancePresetId,
-	type FolderAppearancePresetId,
+	SUBFOLDER_APPEARANCE_PRESETS,
+	withSubfolderAppearance,
+	type AppearancePresetDefinition,
+	type SubfolderAppearanceState,
 } from '../appearance-presets';
 import { paletteTemplate } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
@@ -15,6 +18,11 @@ import type FolderToolkitPlugin from '../main';
 import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
 
 type EffectKey = 'text' | 'background';
+
+interface PresetResult {
+	rule: AppearanceRule;
+	subfolders?: SubfolderAppearanceState;
+}
 
 function isBorderRule(border: BorderAppearanceRule | undefined): border is BorderRule {
 	return border !== undefined && !('kind' in border);
@@ -102,35 +110,73 @@ export class AppearanceModal extends Modal {
 		section.addEventListener('toggle', () => { this.presetsOpen = section.open; });
 		const heading = section.createEl('summary', { cls: 'ft-appearance-presets__header' });
 		heading.createSpan({ text: 'Presets', cls: 'ft-card-title' });
-		heading.createSpan({ text: 'Replace all settings above with a starting style.', cls: 'ft-appearance-presets__hint' });
-		const list = section.createDiv('ft-appearance-presets__list');
-		const presets: ReadonlyArray<{ id: FolderAppearancePresetId | FileAppearancePresetId; label: string; description: string }> = this.isFolder
-			? FOLDER_APPEARANCE_PRESETS
-			: FILE_APPEARANCE_PRESETS;
 		const slot = this.nextSiblingPaletteSlot();
+		if (!this.isFolder) {
+			heading.createSpan({ text: 'Replace all settings above with a starting style.', cls: 'ft-appearance-presets__hint' });
+			this.renderPresetGroup(section, undefined, FILE_APPEARANCE_PRESETS, (id) => ({ rule: createFileAppearancePreset(id, slot) }));
+			return;
+		}
+		heading.createSpan({ text: 'Each group replaces only its own settings.', cls: 'ft-appearance-presets__hint' });
+		this.renderPresetGroup(
+			section,
+			{ title: 'This folder', hint: 'Background, border, and label of the folder row.' },
+			FOLDER_APPEARANCE_PRESETS,
+			(id) => {
+				const subfolders = this.subfolderState();
+				return { rule: withSubfolderAppearance(createFolderAppearancePreset(id, slot), subfolders), subfolders };
+			},
+		);
+		this.renderPresetGroup(
+			section,
+			{ title: 'Subfolders', hint: 'How the folder style reaches its subfolders and notes.' },
+			SUBFOLDER_APPEARANCE_PRESETS,
+			(id) => {
+				const subfolders = createSubfolderAppearancePreset(id);
+				return { rule: withSubfolderAppearance(this.draft, subfolders), subfolders };
+			},
+		);
+	}
+
+	/** Renders one row of preset buttons. `build` returns the full draft that applying the preset produces, plus the subfolder state for folders. */
+	private renderPresetGroup<Id extends string>(
+		container: HTMLElement,
+		heading: { title: string; hint: string } | undefined,
+		presets: ReadonlyArray<AppearancePresetDefinition<Id>>,
+		build: (id: Id) => PresetResult,
+	): void {
+		const group = container.createDiv('ft-appearance-presets__group');
+		if (heading) {
+			const header = group.createDiv('ft-appearance-presets__group-header');
+			header.createEl('h4', { text: heading.title });
+			header.createSpan({ text: heading.hint, cls: 'ft-appearance-presets__hint' });
+		}
+		const list = group.createDiv('ft-appearance-presets__list');
 		for (const preset of presets) {
+			const { rule } = build(preset.id);
 			const button = list.createEl('button', {
 				cls: 'ft-appearance-preset',
 				attr: { type: 'button', 'aria-label': `Apply ${preset.label} preset. ${preset.description}`, title: preset.description },
 			});
 			const sample = button.createDiv({ cls: 'ft-appearance-preset__sample', attr: { 'aria-hidden': 'true' } });
 			const tree = buildPreviewTree(sample, this.path, this.isFolder, 'compact');
-			stylePreviewTree(tree, this.toolkit.settings, this.path, this.createPreset(preset.id, slot));
+			stylePreviewTree(tree, this.toolkit.settings, this.path, rule);
 			button.createSpan({ text: preset.label, cls: 'ft-appearance-preset__label' });
-			button.addEventListener('click', () => this.applyPreset(preset.id));
+			button.addEventListener('click', () => this.applyPreset(build(preset.id)));
 		}
 	}
 
-	private createPreset(id: FolderAppearancePresetId | FileAppearancePresetId, slot: number): AppearanceRule {
-		return this.isFolder
-			? createFolderAppearancePreset(id as FolderAppearancePresetId, slot)
-			: createFileAppearancePreset(id as FileAppearancePresetId, slot);
+	private subfolderState(): SubfolderAppearanceState {
+		return {
+			...(this.draft.descendants ? { descendants: this.draft.descendants } : {}),
+			textCascade: this.textCascade,
+			backgroundCascade: this.backgroundCascade,
+		};
 	}
 
-	private applyPreset(id: FolderAppearancePresetId | FileAppearancePresetId): void {
-		this.draft = this.createPreset(id, this.nextSiblingPaletteSlot());
-		this.textCascade = this.draft.text?.cascade ?? false;
-		this.backgroundCascade = this.draft.background?.cascade ?? false;
+	private applyPreset({ rule, subfolders }: PresetResult): void {
+		this.draft = rule;
+		this.textCascade = subfolders?.textCascade ?? false;
+		this.backgroundCascade = subfolders?.backgroundCascade ?? false;
 		if (isBorderRule(this.draft.border)) this.rememberedBorder = structuredClone(this.draft.border);
 		if (this.draft.descendants) this.rememberedDescendants = structuredClone(this.draft.descendants);
 		this.render();

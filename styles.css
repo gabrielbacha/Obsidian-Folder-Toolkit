@@ -184,6 +184,28 @@ body.theme-dark .workspace-tab-header.ft-tab-has-text .workspace-tab-header-inne
 	text-wrap: pretty;
 }
 
+.ft-appearance-presets__group {
+	display: grid;
+	gap: var(--size-4-2);
+}
+
+.ft-appearance-presets__group + .ft-appearance-presets__group {
+	margin-top: var(--size-4-2);
+}
+
+.ft-appearance-presets__group-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--size-4-1) var(--size-4-3);
+}
+
+.ft-appearance-presets__group-header h4 {
+	margin: 0;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+}
+
 .ft-appearance-presets__list {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -219,6 +241,12 @@ button.ft-appearance-preset {
 
 .ft-preview-tree--compact {
 	font-size: var(--font-ui-smaller);
+}
+
+/* Border overlays use z-index inside the tree. Isolating the tree keeps them
+   below the sticky modal footer when the samples scroll under it. */
+.ft-preview-tree {
+	isolation: isolate;
 }
 
 .ft-preview-tree--compact .ft-live-preview__row {

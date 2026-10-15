@@ -113,26 +113,63 @@ describe("AppearanceModal immediate controls", () => {
 		modal.onClose();
 	});
 
-	it("applies folder presets as replacement drafts and selects the next unused sibling color", () => {
+	it("applies folder presets to the folder row and selects the next unused sibling color", () => {
 		const { modal, latestDraft } = harness(true, {
 			"Sibling A": { background: { choice: { kind: "preset", slot: 0 }, cascade: false } },
 			"Sibling B": { text: { color: { kind: "preset", slot: 1 }, bold: false, strikethrough: false, cascade: false } },
 		}, ["Sibling A", "Sibling B"]);
-		const presetButtons = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")];
-		expect(presetButtons.map((button) => button.querySelector(".ft-appearance-preset__label")?.textContent)).toEqual([
+		const groups = [...modal.contentEl.querySelectorAll<HTMLElement>(".ft-appearance-presets__group")];
+		expect(groups.map((group) => group.querySelector("h4")?.textContent)).toEqual(["This folder", "Subfolders"]);
+		const labelsOf = (group: HTMLElement) => [...group.querySelectorAll(".ft-appearance-preset__label")].map((label) => label.textContent);
+		expect(labelsOf(groups[0])).toEqual([
 			"Grouping folder", "Shaded box", "Section rail", "Minimal label", "Highlight", "Attention", "Muted", "Archived",
 		]);
-		presetButtons[0].click();
+		expect(labelsOf(groups[1])).toEqual([
+			"Folder only", "Inherit colors", "Subfolder rails", "Shaded rails", "Subfolder boxes", "Shaded boxes",
+		]);
+		groups[0].querySelector<HTMLButtonElement>(".ft-appearance-preset")!.click();
 		expect(latestDraft().background).toEqual({ choice: { kind: "preset", slot: 2, strength: 14 }, cascade: false });
 		expect(latestDraft().border).toMatchObject({ style: "box", color: { kind: "preset", slot: 2 } });
-		expect(latestDraft().descendants).toEqual({ enabled: true, style: "rail", thickness: "thin", shading: true });
+		expect(latestDraft().descendants).toBeUndefined();
 
-		const muted = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")].find((button) => button.querySelector(".ft-appearance-preset__label")?.textContent === "Muted")!;
-		muted.click();
-		expect(latestDraft()).toEqual({ background: { choice: { kind: "custom", hex: "#A8ADB5", strength: 16 }, cascade: true } });
-		[...modal.contentEl.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reset to inherited")!.click();
+		[...modal.contentEl.querySelectorAll("button")].find((button) => button.textContent === "Reset to inherited")!.click();
 		expect(latestDraft()).toEqual({});
 		expect([...modal.contentEl.querySelectorAll<HTMLInputElement>(".ft-cascade-control input")].every((checkbox) => !checkbox.checked)).toBe(true);
+		modal.onClose();
+	});
+
+	it("keeps folder-row and subfolder presets independent of each other", () => {
+		const { modal, latestDraft } = harness(true);
+		const presetByLabel = (label: string) => [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")]
+			.find((button) => button.querySelector(".ft-appearance-preset__label")?.textContent === label)!;
+
+		presetByLabel("Shaded rails").click();
+		expect(latestDraft()).toEqual({ descendants: { enabled: true, style: "rail", thickness: "thin", shading: true } });
+		presetByLabel("Muted").click();
+		expect(latestDraft()).toEqual({
+			background: { choice: { kind: "custom", hex: "#A8ADB5", strength: 16 }, cascade: false },
+			descendants: { enabled: true, style: "rail", thickness: "thin", shading: true },
+		});
+
+		presetByLabel("Inherit colors").click();
+		expect(latestDraft()).toEqual({ background: { choice: { kind: "custom", hex: "#A8ADB5", strength: 16 }, cascade: true } });
+		expect([...modal.contentEl.querySelectorAll<HTMLInputElement>(".ft-cascade-control input")].every((checkbox) => checkbox.checked)).toBe(true);
+		presetByLabel("Archived").click();
+		expect(latestDraft()).toEqual({
+			text: { color: { kind: "custom", hex: "#A8ADB5", strength: 100 }, bold: false, strikethrough: false, cascade: true },
+		});
+		modal.onClose();
+	});
+
+	it("keeps cascade choices from a subfolder preset when the folder has no colors yet", () => {
+		const { modal, latestDraft } = harness(true);
+		const presetByLabel = (label: string) => [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-appearance-preset")]
+			.find((button) => button.querySelector(".ft-appearance-preset__label")?.textContent === label)!;
+		presetByLabel("Inherit colors").click();
+		expect(latestDraft()).toEqual({});
+		presetByLabel("Highlight").click();
+		expect(latestDraft().background?.cascade).toBe(true);
+		expect(latestDraft().text?.cascade).toBe(true);
 		modal.onClose();
 	});
 
@@ -194,9 +231,11 @@ describe("AppearanceModal immediate controls", () => {
 		const grouping = sampleOf(folderButtons, "Grouping folder");
 		const groupingRoot = grouping.querySelector<HTMLElement>(".nav-folder")!;
 		expect(groupingRoot.classList.contains("ft-preview-border-box")).toBe(true);
-		expect(grouping.querySelectorAll(".nav-folder.ft-preview-border-rail").length).toBe(2);
-		expect(sampleOf(folderButtons, "Muted").querySelector(".nav-folder")!.classList.contains("ft-preview-background-cascade")).toBe(true);
-		expect(sampleOf(folderButtons, "Archived").querySelectorAll(".ft-preview-has-text").length).toBeGreaterThan(1);
+		expect(grouping.querySelectorAll(".nav-folder.ft-preview-border-rail").length).toBe(0);
+		expect(sampleOf(folderButtons, "Muted").querySelector(".nav-folder")!.classList.contains("ft-preview-background-cascade")).toBe(false);
+		expect(sampleOf(folderButtons, "Archived").querySelectorAll(".ft-preview-has-text").length).toBe(1);
+		expect(sampleOf(folderButtons, "Subfolder rails").querySelectorAll(".nav-folder.ft-preview-border-rail").length).toBe(2);
+		expect(sampleOf(folderButtons, "Shaded boxes").querySelectorAll(".nav-folder.ft-preview-border-box.ft-preview-border-shaded").length).toBe(2);
 		folderHarness.modal.onClose();
 
 		const fileHarness = harness(false);
