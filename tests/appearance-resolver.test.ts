@@ -9,6 +9,8 @@ const settings: FolderToolkitSettings = {
 	conditionalFormats: [],
 	hiddenPaths: [],
 	showHiddenItems: false,
+	nestedVaults: false,
+	vaultMarker: 'off',
 	appearanceRules: {
 		A: {
 			text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true },

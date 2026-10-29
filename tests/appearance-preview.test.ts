@@ -14,6 +14,8 @@ function settings(): FolderToolkitSettings {
 		conditionalFormats: [],
 		hiddenPaths: [],
 		showHiddenItems: false,
+		nestedVaults: false,
+		vaultMarker: 'off',
 	};
 }
 

@@ -48,7 +48,7 @@ export function normalizeHex(input: unknown): string | null {
 
 export function resolveChoice(choice: ColorChoice, paletteId: PaletteTemplateId): ResolvedColor | null {
 	if (choice.kind === 'none') return null;
-	const template = paletteTemplate(paletteId);
+	const template = paletteTemplate(choice.kind === 'preset' && choice.palette ? choice.palette : paletteId);
 	const hex = choice.kind === 'custom'
 		? normalizeHex(choice.hex)
 		: template.colors[Math.min(Math.max(choice.slot, 0), template.colors.length - 1)];

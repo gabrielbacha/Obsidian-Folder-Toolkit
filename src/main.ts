@@ -2,11 +2,15 @@ import { Menu, Notice, Plugin, TAbstractFile, TFolder, type App } from 'obsidian
 import { ExplorerManager } from './explorer-manager';
 import { AppearancePreviewStore } from './appearance-preview';
 import { normalizePaletteTemplateId } from './colors';
+import { NestedVaultStore, tagAppearancePalette, type AppearanceOwner } from './nested-vaults';
 import { findNearestContainingPath, isSameOrDescendant, replacePathRoot } from './path-utils';
 import { normalizeSettings } from './settings';
 import { TabManager } from './tab-manager';
-import type { AppearanceRule, ConditionalFormatRule, FolderToolkitSettings } from './types';
-import { AppearanceModal } from './ui/appearance-modal';
+import { VAULT_MARKERS, type AppearanceRule, type ConditionalFormatRule, type FolderToolkitSettings, type PaletteTemplateId, type VaultMarker } from './types';
+import { AppearanceModal, type AppearanceTarget } from './ui/appearance-modal';
+
+/** Time after a rename in a nested vault before the moved rules are checked again. */
+const NESTED_RENAME_RECHECK_MS = 2000;
 import { FolderToolkitSettingTab } from './ui/settings-tab';
 
 export default class FolderToolkitPlugin extends Plugin {
@@ -16,11 +20,24 @@ export default class FolderToolkitPlugin extends Plugin {
 	private settingTab!: FolderToolkitSettingTab;
 	private focusPath: string | null = null;
 	private readonly appearancePreview = new AppearancePreviewStore();
+	private nested!: NestedVaultStore;
 
 	async onload(): Promise<void> {
 		this.settings = normalizeSettings(await this.loadData());
-		this.explorer = new ExplorerManager(this.app, () => this.appearancePreview.apply(this.settings), () => this.focusPath);
-		this.tabs = new TabManager(this.app, () => this.settings);
+		this.nested = new NestedVaultStore(this.app.vault.adapter, this.app.vault.configDir, this.manifest.id, () => {
+			this.explorer?.reconcileSoon();
+			this.tabs?.reconcileSoon();
+		});
+		this.explorer = new ExplorerManager(
+			this.app,
+			() => this.effectiveSettings(),
+			() => this.focusPath,
+			{
+				probe: (folderPaths) => { if (this.settings.nestedVaults) this.nested.probe(folderPaths); },
+				isVaultRoot: (path) => this.settings.nestedVaults && this.nested.isKnownVaultRoot(path),
+			},
+		);
+		this.tabs = new TabManager(this.app, () => this.effectiveSettings());
 
 		this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => this.addFileMenu(menu, file)));
 		this.registerEvent(this.app.workspace.on('layout-change', () => {
@@ -30,6 +47,8 @@ export default class FolderToolkitPlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on('file-open', () => this.tabs.reconcileSoon()));
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => void this.handleRename(file, oldPath)));
 		this.registerEvent(this.app.vault.on('delete', (file) => void this.handleDelete(file)));
+		// A nested vault's settings change when it is edited in its own window. Read them again when this window gets focus.
+		this.registerDomEvent(window, 'focus', () => void this.refreshNestedVaults());
 
 		this.addCommand({
 			id: 'toggle-hidden-items',
@@ -47,6 +66,12 @@ export default class FolderToolkitPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'reload-nested-vault-appearance',
+			name: 'Reload appearance from nested vaults',
+			callback: () => void this.refreshNestedVaults(),
+		});
+
+		this.addCommand({
 			id: 'open-conditional-formatting',
 			name: 'Open conditional formatting rules',
 			callback: () => this.openConditionalFormatting(),
@@ -58,6 +83,14 @@ export default class FolderToolkitPlugin extends Plugin {
 			this.explorer.start();
 			this.tabs.start();
 		});
+	}
+
+	/** Obsidian calls this when this vault's `data.json` changes on disk, for example from Sync or from an outer vault. */
+	async onExternalSettingsChange(): Promise<void> {
+		this.settings = normalizeSettings(await this.loadData());
+		this.nested.invalidate();
+		this.explorer.reconcileSoon();
+		this.tabs.reconcileSoon();
 	}
 
 	onunload(): void {
@@ -77,7 +110,42 @@ export default class FolderToolkitPlugin extends Plugin {
 		this.settingTab.revealConditionalFormats();
 	}
 
-	async setAppearance(path: string, rule: AppearanceRule): Promise<void> {
+	/** The settings that the explorer and tabs show: this vault, nested vaults, and open previews. */
+	effectiveSettings(): FolderToolkitSettings {
+		return this.appearancePreview.apply(this.nested?.effective(this.settings) ?? this.settings);
+	}
+
+	/** Finds the vault that stores the appearance of `path` and its current rule there. */
+	async appearanceTarget(path: string): Promise<AppearanceTarget> {
+		const owner: AppearanceOwner = this.settings.nestedVaults
+			? await this.nested.ownerOf(path)
+			: { root: null, relativePath: path };
+		if (owner.root === null) {
+			return { owner, paletteTemplateId: this.settings.paletteTemplateId, rule: this.settings.appearanceRules[path] };
+		}
+		const layer = this.nested.layer(owner.root);
+		return {
+			owner,
+			paletteTemplateId: layer?.paletteTemplateId ?? 'default',
+			rule: layer?.appearanceRules[owner.relativePath],
+		};
+	}
+
+	async openAppearanceEditor(path: string, onSaved?: () => void): Promise<void> {
+		try {
+			new AppearanceModal(this, path, onSaved, await this.appearanceTarget(path)).open();
+		} catch (error) {
+			console.error('Folder Toolkit: could not open the appearance editor.', error);
+			new Notice('Could not read the appearance settings for this item.');
+		}
+	}
+
+	/** Saves `rule` for `path`. With a nested `owner`, the rule is saved in that vault's settings. */
+	async setAppearance(path: string, rule: AppearanceRule, owner?: AppearanceOwner): Promise<void> {
+		if (owner?.root) {
+			await this.nested.writeRule(owner.root, owner.relativePath, rule);
+			return;
+		}
 		if (Object.keys(rule).length === 0) delete this.settings.appearanceRules[path];
 		else this.settings.appearanceRules[path] = structuredClone(rule);
 		await this.persist();
@@ -88,8 +156,9 @@ export default class FolderToolkitPlugin extends Plugin {
 		await this.persist();
 	}
 
-	previewAppearance(path: string, rule: AppearanceRule): void {
-		this.appearancePreview.set(path, rule);
+	/** Shows `rule` before it is saved. `palette` is the palette of a nested vault that owns `path`. */
+	previewAppearance(path: string, rule: AppearanceRule, palette?: PaletteTemplateId): void {
+		this.appearancePreview.set(path, palette ? tagAppearancePalette(rule, palette) : rule);
 		this.explorer.reconcileSoon();
 	}
 
@@ -117,6 +186,21 @@ export default class FolderToolkitPlugin extends Plugin {
 	async setPalette(value: string): Promise<void> {
 		this.settings.paletteTemplateId = normalizePaletteTemplateId(value);
 		await this.persist();
+	}
+
+	async setNestedVaults(value: boolean): Promise<void> {
+		this.settings.nestedVaults = value;
+		await this.persist();
+		if (value) this.explorer.syncLeaves();
+	}
+
+	async setVaultMarker(value: string): Promise<void> {
+		this.settings.vaultMarker = VAULT_MARKERS.includes(value as VaultMarker) ? value as VaultMarker : 'both';
+		await this.persist();
+	}
+
+	async refreshNestedVaults(): Promise<void> {
+		if (this.settings.nestedVaults) await this.nested.refresh();
 	}
 
 	async setTabStyle(value: string): Promise<void> {
@@ -197,7 +281,7 @@ export default class FolderToolkitPlugin extends Plugin {
 		menu.addItem((item) => item
 			.setTitle(`Edit ${file instanceof TFolder ? 'folder' : 'file'} appearance…`)
 			.setIcon('palette')
-			.onClick(() => new AppearanceModal(this, file.path).open()));
+			.onClick(() => void this.openAppearanceEditor(file.path)));
 
 		const hiddenAncestor = this.findHiddenAncestor(file.path);
 		if (hiddenAncestor) {
@@ -255,10 +339,99 @@ export default class FolderToolkitPlugin extends Plugin {
 			this.explorer.reconcileSoon();
 			this.tabs.reconcileSoon();
 		}
+		if (this.settings.nestedVaults) await this.renameNestedRules(oldPath, file.path);
 	}
 
+	/**
+	 * Moves nested-vault rules after a rename made in this vault. The rules come from the
+	 * cached copy, because the nested vault's own window sees the rename as a delete and
+	 * can remove them from its file first. The move runs again after a short delay for
+	 * the same reason. Every step is safe to repeat.
+	 */
+	private async renameNestedRules(oldPath: string, newPath: string): Promise<void> {
+		const oldLayerRoots = this.nestedRootsAt(oldPath);
+		this.nested.forget(oldPath);
+		const [from, to] = await Promise.all([this.nested.ownerOf(oldPath), this.nested.ownerOf(newPath)]);
+		if (from.root === null && to.root === null) return;
+
+		const moved: Record<string, AppearanceRule> = {};
+		if (from.root !== null) {
+			for (const [path, rule] of Object.entries(oldLayerRoots.get(from.root)?.appearanceRules ?? {})) {
+				if (isSameOrDescendant(path, from.relativePath)) moved[path.slice(from.relativePath.length)] = rule;
+			}
+		} else {
+			// Rules saved in this vault were already moved to `newPath` above.
+			for (const [path, rule] of Object.entries(this.settings.appearanceRules)) {
+				if (isSameOrDescendant(path, newPath)) moved[path.slice(newPath.length)] = rule;
+			}
+		}
+		if (Object.keys(moved).length === 0) return;
+
+		const apply = async (): Promise<void> => {
+			const fromRoot = from.root;
+			const toRoot = to.root;
+			const oldKey = (suffix: string) => `${from.relativePath}${suffix}`;
+			const newKey = (suffix: string) => `${toRoot === null ? newPath : to.relativePath}${suffix}`;
+			const addMissing = (rules: Record<string, AppearanceRule>): boolean => {
+				let changed = false;
+				for (const [suffix, rule] of Object.entries(moved)) {
+					if (newKey(suffix) in rules) continue;
+					rules[newKey(suffix)] = structuredClone(rule);
+					changed = true;
+				}
+				return changed;
+			};
+			const removeOld = (rules: Record<string, AppearanceRule>, keys: string[]): boolean => {
+				let changed = false;
+				for (const key of keys) {
+					if (!(key in rules)) continue;
+					delete rules[key];
+					changed = true;
+				}
+				return changed;
+			};
+			const suffixes = Object.keys(moved);
+
+			if (fromRoot !== null && fromRoot === toRoot) {
+				await this.nested.mutate(fromRoot, (rules) => {
+					const removed = removeOld(rules, suffixes.map(oldKey).filter((key) => !suffixes.map(newKey).includes(key)));
+					return addMissing(rules) || removed;
+				});
+				return;
+			}
+			if (fromRoot !== null) await this.nested.mutate(fromRoot, (rules) => removeOld(rules, suffixes.map(oldKey)));
+			else if (removeOld(this.settings.appearanceRules, suffixes.map((suffix) => `${newPath}${suffix}`))) await this.persist();
+
+			if (toRoot !== null) await this.nested.mutate(toRoot, addMissing);
+			else if (addMissing(this.settings.appearanceRules)) await this.persist();
+		};
+
+		try {
+			await apply();
+			window.setTimeout(() => void apply().catch((error) => console.warn('Folder Toolkit: second check after a rename failed.', error)), NESTED_RENAME_RECHECK_MS);
+		} catch (error) {
+			console.error('Folder Toolkit: could not move the appearance rules in the nested vault.', error);
+			new Notice('Could not update the nested vault settings after the rename.');
+		}
+	}
+
+	/** Cached settings of the nested vaults that own `path` or contain it, read before the caches are cleared. */
+	private nestedRootsAt(path: string): Map<string, FolderToolkitSettings> {
+		const result = new Map<string, FolderToolkitSettings>();
+		for (const root of parentPathsWithSelf(path)) {
+			const layer = this.nested.layer(root);
+			if (layer) result.set(root, layer);
+		}
+		return result;
+	}
+
+	/**
+	 * Removes rules saved in this vault. Rules in a nested vault stay: that vault removes
+	 * them itself when it sees the delete, and a write from here could race with it.
+	 */
 	private async handleDelete(file: TAbstractFile): Promise<void> {
 		this.appearancePreview.clearSubtree(file.path);
+		this.nested?.forget(file.path);
 		const oldAppearanceCount = Object.keys(this.settings.appearanceRules).length;
 		this.settings.appearanceRules = Object.fromEntries(
 			Object.entries(this.settings.appearanceRules).filter(([path]) => !isSameOrDescendant(path, file.path)),
@@ -277,6 +450,7 @@ export default class FolderToolkitPlugin extends Plugin {
 	}
 
 	private async persist(): Promise<void> {
+		this.nested?.invalidate();
 		await this.saveData(this.settings);
 		this.explorer.reconcileSoon();
 		this.tabs.reconcileSoon();
@@ -293,4 +467,9 @@ function settingsModal(app: App): SettingsModal | null {
 	const modal = (app as App & { setting?: Partial<SettingsModal> }).setting;
 	if (typeof modal?.open !== 'function' || typeof modal.openTabById !== 'function') return null;
 	return modal as SettingsModal;
+}
+
+function parentPathsWithSelf(path: string): string[] {
+	const parts = path.split('/');
+	return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
 }

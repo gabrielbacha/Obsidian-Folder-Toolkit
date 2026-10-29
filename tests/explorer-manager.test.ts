@@ -78,6 +78,8 @@ describe('ExplorerManager', () => {
 			conditionalFormats: [],
 			hiddenPaths: ['A/B/note.md'],
 			showHiddenItems: false,
+			nestedVaults: false,
+			vaultMarker: 'off',
 		};
 	});
 
@@ -102,6 +104,24 @@ describe('ExplorerManager', () => {
 		expect(rowFor('A/B/note.md').style.getPropertyValue('--ft-text-light')).not.toBe('');
 		manager.stop();
 		expect(rowFor('A/B').hasClass('ft-focus-root')).toBe(false);
+	});
+
+	it('marks folders that are vaults and reports shown folders for probing', () => {
+		const probed: string[][] = [];
+		const nested = { probe: (paths: string[]) => probed.push(paths), isVaultRoot: (path: string) => path === 'A/C' };
+		const rowFor = (path: string) => root.querySelector<HTMLElement>(`[data-path="${path}"]`)!.parentElement!;
+		for (const [marker, icon, border] of [['both', true, true], ['icon', true, false], ['border', false, true], ['off', false, false]] as const) {
+			settings = { ...settings, vaultMarker: marker };
+			const manager = new ExplorerManager(mockApp(root), () => settings, () => null, nested);
+			manager.syncLeaves();
+			manager.reconcile();
+			expect(rowFor('A/C').hasClass('ft-vault-icon')).toBe(icon);
+			expect(rowFor('A/C').hasClass('ft-vault-border')).toBe(border);
+			expect(rowFor('A/B').hasClass('ft-vault-icon')).toBe(false);
+			manager.stop();
+			expect(rowFor('A/C').hasClass('ft-vault-icon')).toBe(false);
+		}
+		expect(probed.at(-1)).toEqual(['A', 'A/B', 'A/C', 'Other']);
 	});
 
 	it('changes only visibility and layout classes when focus enters and exits a nested folder', () => {

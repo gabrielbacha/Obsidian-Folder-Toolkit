@@ -59,6 +59,18 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				render: (setting) => this.renderTabStyle(setting),
 			},
 			{
+				name: 'Nested vaults',
+				desc: 'Show and save folder appearance in the vault folders inside this vault.',
+				aliases: ['vault inside vault', 'nested', 'sub vault'],
+				render: (setting) => this.renderNestedVaultsToggle(setting),
+			},
+			{
+				name: 'Vault marker',
+				desc: 'Mark folders that are themselves vaults with an icon, a border, or both.',
+				aliases: ['nested', 'vault icon', 'vault border'],
+				render: (setting) => this.renderVaultMarker(setting),
+			},
+			{
 				name: 'Conditional formatting',
 				desc: 'Style matching file and folder names with the same text, background, and border controls used for direct editing.',
 				aliases: ['name rules', 'starts with', 'folder shading', 'file shading', 'file border', 'folder border'],
@@ -484,6 +496,36 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		const resolved = resolveChoice(choice, this.toolkit.settings.paletteTemplateId);
 		const badge = container.createSpan({ text: label, cls: 'ft-style-badge' });
 		if (resolved) badge.style.setProperty('--ft-rule-color', resolved.hex);
+	}
+
+	private renderNestedVaultsToggle(setting: Setting): void {
+		setting.controlEl.empty();
+		setting
+			.setName('Nested vaults')
+			.setDesc('When a folder is itself a vault that uses this plugin, show its colors here and save changes to its items in that vault\'s settings.')
+			.addToggle((toggle) => toggle
+				.setValue(this.toolkit.settings.nestedVaults)
+				.onChange(async (value) => {
+					await this.toolkit.setNestedVaults(value);
+					this.update();
+				}));
+	}
+
+	private renderVaultMarker(setting: Setting): void {
+		setting.controlEl.empty();
+		setting
+			.setName('Vault marker')
+			.setDesc('Mark folders that are themselves vaults. Needs nested vaults on.')
+			.addDropdown((dropdown) => dropdown
+				.addOption('both', 'Icon and border')
+				.addOption('icon', 'Icon')
+				.addOption('border', 'Border')
+				.addOption('off', 'Off')
+				.setValue(this.toolkit.settings.vaultMarker)
+				.onChange(async (value) => {
+					await this.toolkit.setVaultMarker(value);
+					this.update();
+				}));
 	}
 
 	private renderHiddenToggle(setting: Setting): void {

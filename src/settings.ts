@@ -3,6 +3,8 @@ import {
 	DEFAULT_CONDITIONAL_FORMATS,
 	DEFAULT_SETTINGS,
 	SCHEMA_VERSION,
+	VAULT_MARKERS,
+	type VaultMarker,
 	type AppearanceRule,
 	type BorderAppearanceRule,
 	type BorderRule,
@@ -191,5 +193,7 @@ export function normalizeSettings(raw: unknown): FolderToolkitSettings {
 		conditionalFormats: migratedConditionalFormats,
 		hiddenPaths,
 		showHiddenItems: raw.showHiddenItems === true,
+		nestedVaults: raw.nestedVaults !== false,
+		vaultMarker: VAULT_MARKERS.includes(raw.vaultMarker as VaultMarker) ? raw.vaultMarker as VaultMarker : 'both',
 	};
 }

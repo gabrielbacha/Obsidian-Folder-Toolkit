@@ -15,7 +15,15 @@ import { paletteTemplate } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
 import { buildPreviewTree, stylePreviewTree, type PreviewTree } from './preview-tree';
 import type FolderToolkitPlugin from '../main';
-import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, TextAppearanceRule } from '../types';
+import { tagAppearancePalette, type AppearanceOwner } from '../nested-vaults';
+import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, FolderToolkitSettings, PaletteTemplateId, TextAppearanceRule } from '../types';
+
+/** The vault that stores an item's appearance, its palette, and the rule saved there. */
+export interface AppearanceTarget {
+	owner: AppearanceOwner;
+	paletteTemplateId: PaletteTemplateId;
+	rule: AppearanceRule | undefined;
+}
 
 type EffectKey = 'text' | 'background';
 
@@ -31,7 +39,8 @@ function isBorderRule(border: BorderAppearanceRule | undefined): border is Borde
 export class AppearanceModal extends Modal {
 	private draft: AppearanceRule;
 	private readonly isFolder: boolean;
-	private readonly controls = new AppearanceControlRenderer(this.toolkit);
+	private readonly controls: AppearanceControlRenderer;
+	private readonly target: AppearanceTarget;
 	private rememberedBorder: BorderRule;
 	private rememberedDescendants: DescendantRule;
 	private textCascade: boolean;
@@ -42,9 +51,16 @@ export class AppearanceModal extends Modal {
 		private readonly toolkit: FolderToolkitPlugin,
 		private readonly path: string,
 		private readonly onSaved?: () => void,
+		target?: AppearanceTarget,
 	) {
 		super(toolkit.app);
-		this.draft = structuredClone(toolkit.settings.appearanceRules[path] ?? {});
+		this.target = target ?? {
+			owner: { root: null, relativePath: path },
+			paletteTemplateId: toolkit.settings.paletteTemplateId,
+			rule: toolkit.settings.appearanceRules[path],
+		};
+		this.controls = new AppearanceControlRenderer(toolkit, () => this.target.paletteTemplateId);
+		this.draft = structuredClone(this.target.rule ?? {});
 		this.isFolder = toolkit.app.vault.getAbstractFileByPath(path) instanceof TFolder;
 		this.rememberedBorder = structuredClone(isBorderRule(this.draft.border) ? this.draft.border : {
 			style: 'box',
@@ -87,6 +103,7 @@ export class AppearanceModal extends Modal {
 		this.renderText(cards);
 		if (this.isFolder) this.renderDescendants(cards);
 		this.renderPresets();
+		this.renderOwnerNote();
 
 		const footer = this.contentEl.createDiv('ft-modal-footer');
 		const error = footer.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
@@ -159,7 +176,7 @@ export class AppearanceModal extends Modal {
 			});
 			const sample = button.createDiv({ cls: 'ft-appearance-preset__sample', attr: { 'aria-hidden': 'true' } });
 			const tree = buildPreviewTree(sample, this.path, this.isFolder, 'compact');
-			stylePreviewTree(tree, this.toolkit.settings, this.path, rule);
+			stylePreviewTree(tree, this.previewSettings(), this.path, this.previewRule(rule));
 			button.createSpan({ text: preset.label, cls: 'ft-appearance-preset__label' });
 			button.addEventListener('click', () => this.applyPreset(build(preset.id)));
 		}
@@ -190,11 +207,12 @@ export class AppearanceModal extends Modal {
 	 */
 	private nextSiblingPaletteSlot(): number {
 		const item = this.toolkit.app.vault.getAbstractFileByPath(this.path);
-		const paletteLength = paletteTemplate(this.toolkit.settings.paletteTemplateId).colors.length;
+		const paletteLength = paletteTemplate(this.target.paletteTemplateId).colors.length;
 		if (!(item instanceof TAbstractFile) || !item.parent || paletteLength === 0) return 0;
 		const sameKind = (candidate: TAbstractFile) => (candidate instanceof TFolder) === this.isFolder;
 		const siblings = item.parent.children.filter((child) => sameKind(child) && child.path !== item.path);
-		const used = new Set(siblings.flatMap((sibling) => paletteSlotsUsedByAppearance(this.toolkit.settings.appearanceRules[sibling.path])));
+		const rules = this.previewSettings().appearanceRules;
+		const used = new Set(siblings.flatMap((sibling) => paletteSlotsUsedByAppearance(rules[sibling.path])));
 		for (let slot = 0; slot < paletteLength; slot += 1) {
 			if (!used.has(slot)) return slot;
 		}
@@ -205,7 +223,8 @@ export class AppearanceModal extends Modal {
 	private async save(button: HTMLButtonElement, error: HTMLElement): Promise<void> {
 		button.disabled = true;
 		try {
-			await this.toolkit.setAppearance(this.path, this.draft);
+			if (this.isNested()) await this.toolkit.setAppearance(this.path, this.draft, this.target.owner);
+			else await this.toolkit.setAppearance(this.path, this.draft);
 			this.onSaved?.();
 			this.close();
 		} catch {
@@ -226,11 +245,37 @@ export class AppearanceModal extends Modal {
 
 	private refreshPreview(): void {
 		this.updateModalPreview();
-		this.toolkit.previewAppearance(this.path, this.draft);
+		if (this.isNested()) this.toolkit.previewAppearance(this.path, this.draft, this.target.paletteTemplateId);
+		else this.toolkit.previewAppearance(this.path, this.draft);
 	}
 
 	private updateModalPreview(): void {
-		if (this.previewTree) stylePreviewTree(this.previewTree, this.toolkit.settings, this.path, this.draft);
+		if (this.previewTree) stylePreviewTree(this.previewTree, this.previewSettings(), this.path, this.previewRule(this.draft));
+	}
+
+	private isNested(): boolean {
+		return this.target.owner.root !== null;
+	}
+
+	/** Settings as the explorer shows them, so inherited colors from nested vaults appear in the preview. */
+	private previewSettings(): FolderToolkitSettings {
+		return typeof this.toolkit.effectiveSettings === 'function' ? this.toolkit.effectiveSettings() : this.toolkit.settings;
+	}
+
+	private previewRule(rule: AppearanceRule): AppearanceRule {
+		return this.isNested() ? tagAppearancePalette(rule, this.target.paletteTemplateId) : rule;
+	}
+
+	/** Says where the rule is saved when that is not obvious. */
+	private renderOwnerNote(): void {
+		const { root, skippedVault } = this.target.owner;
+		const vaultName = (path: string) => path.split('/').at(-1) ?? path;
+		const text = root !== null
+			? `Saved in the settings of the “${vaultName(root)}” vault.`
+			: skippedVault
+				? `The “${vaultName(skippedVault)}” vault does not have Folder Toolkit, so this is saved in this vault.`
+				: null;
+		if (text) this.contentEl.createDiv({ text, cls: 'ft-appearance-owner' });
 	}
 
 	private renderBackground(container: HTMLElement): void {

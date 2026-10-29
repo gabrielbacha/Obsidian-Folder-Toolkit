@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TFolder } from "obsidian";
 import type FolderToolkitPlugin from "../src/main";
 import type { AppearanceRule, FolderToolkitSettings } from "../src/types";
-import { AppearanceModal } from "../src/ui/appearance-modal";
+import { AppearanceModal, type AppearanceTarget } from "../src/ui/appearance-modal";
 
 function installDomHelpers(): void {
 	HTMLElement.prototype.createDiv = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) { return this.createEl("div", options); };
@@ -28,7 +28,7 @@ function installDomHelpers(): void {
 	HTMLElement.prototype.setText = function (text: string) { this.textContent = text; };
 }
 
-function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appearanceRules"] = {}, siblingPaths: string[] = []) {
+function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appearanceRules"] = {}, siblingPaths: string[] = [], target?: AppearanceTarget) {
 	const settings: FolderToolkitSettings = {
 		schemaVersion: 6,
 		paletteTemplateId: "default",
@@ -37,6 +37,8 @@ function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appear
 		conditionalFormats: [],
 		hiddenPaths: [],
 		showHiddenItems: false,
+		nestedVaults: false,
+		vaultMarker: 'off',
 	};
 	const previewAppearance = vi.fn();
 	const currentFolder = Object.assign(new TFolder(), { path: "Folder", name: "Folder" });
@@ -44,17 +46,18 @@ function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appear
 	const parent = Object.assign(new TFolder(), { path: "", name: "", children: [currentFolder, ...siblings] });
 	Object.assign(currentFolder, { parent });
 	for (const sibling of siblings) Object.assign(sibling, { parent });
+	const setAppearance = vi.fn().mockResolvedValue(undefined);
 	const toolkit = {
 		app: { vault: { getAbstractFileByPath: () => folder ? currentFolder : {} } },
 		settings,
 		previewAppearance,
 		clearAppearancePreview: vi.fn(),
-		setAppearance: vi.fn().mockResolvedValue(undefined),
+		setAppearance,
 	} as unknown as FolderToolkitPlugin;
-	const modal = new AppearanceModal(toolkit, folder ? "Folder" : "note.md");
+	const modal = new AppearanceModal(toolkit, folder ? "Folder" : "note.md", undefined, target);
 	modal.onOpen();
 	const latestDraft = (): AppearanceRule => previewAppearance.mock.calls.at(-1)?.[1] as AppearanceRule;
-	return { modal, latestDraft };
+	return { modal, latestDraft, setAppearance, previewAppearance };
 }
 
 describe("AppearanceModal immediate controls", () => {
@@ -246,5 +249,25 @@ describe("AppearanceModal immediate controls", () => {
 		expect(doneRows[1].classList.contains("ft-preview-is-strikethrough")).toBe(true);
 		expect(sampleOf(fileButtons, "Index note").querySelectorAll(".nav-file.ft-preview-border-box").length).toBe(1);
 		fileHarness.modal.onClose();
+	});
+});
+
+describe("AppearanceModal for a nested vault", () => {
+	beforeEach(() => {
+		document.body.replaceChildren();
+		installDomHelpers();
+	});
+
+	it("edits the rule stored in the owning vault with that vault's palette and saves it there", async () => {
+		const owner = { root: "Vaults/Inner", relativePath: "Folder" };
+		const stored: AppearanceRule = { text: { bold: true, strikethrough: false, cascade: false } };
+		const { modal, setAppearance, previewAppearance } = harness(true, {}, [], { owner, paletteTemplateId: "ember", rule: stored });
+		expect(modal.contentEl.textContent).toContain("Saved in the settings of the “Inner” vault.");
+		expect(modal.contentEl.querySelector(".ft-palette-label")?.textContent).toContain("Ember");
+		const save = [...modal.contentEl.querySelectorAll("button")].find((button) => button.textContent === "Save");
+		save?.click();
+		await Promise.resolve();
+		expect(setAppearance).toHaveBeenCalledWith("Folder", stored, owner);
+		expect(previewAppearance).toHaveBeenLastCalledWith("Folder", stored, "ember");
 	});
 });

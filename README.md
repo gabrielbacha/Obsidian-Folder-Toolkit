@@ -51,6 +51,16 @@ When a file or folder is renamed or moved, saved rules follow the path and open 
 
 Folder focus lasts only for the current Obsidian session. Permanent hiding and appearance settings persist.
 
+### Nested vaults
+
+A folder can itself be a vault, for example when one vault holds several others. With **Nested vaults** on (the default), Folder Toolkit finds each nested vault that has its own Folder Toolkit settings and shows its appearance rules, name rules, and palette inside that folder. When you edit an item inside a nested vault, the editor says which vault it saves to, uses that vault's palette, and writes only that item's rule into that vault's settings file. Every other field in the file stays unchanged. If the nested vault does not have Folder Toolkit, the rule is saved in the current vault instead.
+
+- **Vault marker** shows which folders are vaults: a crystal icon before the name, an accent frame around the whole folder, or both (the default). Highlights inside the folder stay inside the frame. A box border set with Folder Toolkit replaces the frame. Every folder that has its own configuration folder gets the marker, even when that vault does not use Folder Toolkit.
+- A rule that the current vault saves for an exact path wins over nested rules. A deeper vault wins over an outer one.
+- Name rules from a nested vault apply only inside that vault. Hidden paths from a nested vault do not apply.
+- A nested vault that is open in another window reloads its settings when this vault writes them. This vault reads nested settings again when its window gets focus, or when you run **Reload appearance from nested vaults**.
+- Renaming or moving an item inside a nested vault moves its rules in that vault's settings. Deleting an item leaves the nested settings unchanged, because the nested vault removes the rule itself when it sees the delete. Obsidian does not update links in the nested vault after a rename made from the outer vault, so rename notes from the vault that owns them.
+
 ## Performance
 
 Folder Toolkit updates explorer rows and open-note tabs only when their managed classes or colors actually change. Tab updates are driven by Obsidian workspace and vault events rather than observing every DOM mutation in the workspace, keeping typing and large file explorers responsive.
@@ -73,7 +83,7 @@ Reload Obsidian and enable **Folder Toolkit**.
 
 ## Privacy
 
-Folder Toolkit works entirely offline. It makes no network requests, collects no telemetry, and never modifies note content or frontmatter. Its stored data contains only vault-relative paths and visual preferences.
+Folder Toolkit works entirely offline. It makes no network requests, collects no telemetry, and never modifies note content or frontmatter. Its stored data contains only vault-relative paths and visual preferences. With **Nested vaults** on, it also reads and writes the Folder Toolkit settings file of vaults that are folders inside the current vault, and nothing else outside the current vault's own settings.
 
 ## Development
 

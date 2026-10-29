@@ -19,6 +19,8 @@ function settings(mode: 'off' | 'background' | 'border'): FolderToolkitSettings 
 		conditionalFormats: [],
 		hiddenPaths: [],
 		showHiddenItems: false,
+		nestedVaults: false,
+		vaultMarker: 'off',
 	};
 }
 

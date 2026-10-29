@@ -182,4 +182,9 @@ describe('settings normalization', () => {
 		expect(settings.conditionalFormats[1]?.border).toBeUndefined();
 	});
 
+	it('defaults nested vault options and keeps valid saved values', () => {
+		expect(normalizeSettings({})).toMatchObject({ nestedVaults: true, vaultMarker: 'both' });
+		expect(normalizeSettings({ nestedVaults: false, vaultMarker: 'icon' })).toMatchObject({ nestedVaults: false, vaultMarker: 'icon' });
+		expect(normalizeSettings({ vaultMarker: 'sparkles' }).vaultMarker).toBe('both');
+	});
 });

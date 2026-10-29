@@ -20,6 +20,8 @@ describe('workspace refresh events', () => {
 			conditionalFormats: [],
 			hiddenPaths: [],
 			showHiddenItems: false,
+			nestedVaults: false,
+			vaultMarker: 'off',
 		};
 		Object.assign(plugin, {
 			settings,

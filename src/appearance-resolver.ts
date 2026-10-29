@@ -95,7 +95,7 @@ function effectiveBorder(
 	const immediateParent = parents[0];
 	const descendants = context.settings.appearanceRules[immediateParent]?.descendants;
 	if (descendants?.enabled) {
-		const template = paletteTemplate(context.settings.paletteTemplateId);
+		const template = paletteTemplate(descendants.palette ?? context.settings.paletteTemplateId);
 		let slot = 0;
 		if (context.getDescendantIndex) {
 			const index = context.getDescendantIndex(path, immediateParent);
@@ -105,7 +105,7 @@ function effectiveBorder(
 			style: descendants.style,
 			thickness: descendants.thickness,
 			shading: descendants.shading,
-			color: { kind: 'preset', slot },
+			color: { kind: 'preset', slot, ...(descendants.palette ? { palette: descendants.palette } : {}) },
 		};
 	}
 	return undefined;

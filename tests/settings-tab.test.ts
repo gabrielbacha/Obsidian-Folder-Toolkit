@@ -34,7 +34,7 @@ function rule(id: string, pattern: string): ConditionalFormatRule {
 }
 
 function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
-	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false };
+	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false, nestedVaults: false, vaultMarker: 'off' };
 	const removeConditionalFormat = vi.fn().mockResolvedValue(undefined);
 	const addConditionalFormat = vi.fn<() => Promise<string>>();
 	const updateConditionalFormat = vi.fn().mockResolvedValue(undefined);

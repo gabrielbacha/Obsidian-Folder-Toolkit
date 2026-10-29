@@ -6,6 +6,7 @@ function basename(path: string): string {
 
 export function matchesConditionalFormat(path: string, isFolder: boolean, rule: ConditionalFormatRule): boolean {
 	if (!rule.pattern) return false;
+	if (rule.scope !== undefined && !path.startsWith(`${rule.scope}/`)) return false;
 	if (rule.target !== 'both' && rule.target !== (isFolder ? 'folder' : 'file')) return false;
 	const name = basename(path);
 	const candidate = name.toLocaleLowerCase();

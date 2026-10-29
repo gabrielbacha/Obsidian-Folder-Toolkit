@@ -7,7 +7,8 @@ export const PALETTE_TEMPLATE_IDS = [
 export type PaletteTemplateId = (typeof PALETTE_TEMPLATE_IDS)[number];
 
 export type ColorChoice =
-	| { kind: 'preset'; slot: number; strength?: number }
+	/** `palette` is runtime only: it is set on rules read from a nested vault, which can use another palette. */
+	| { kind: 'preset'; slot: number; strength?: number; palette?: PaletteTemplateId }
 	| { kind: 'custom'; hex: string; strength?: number }
 	| { kind: 'none' };
 
@@ -40,6 +41,8 @@ export interface DescendantRule {
 	style: BorderStyle;
 	thickness?: BorderThickness;
 	shading?: boolean;
+	/** Runtime only: the palette of the nested vault that owns this rule. */
+	palette?: PaletteTemplateId;
 }
 
 export interface AppearanceRule {
@@ -65,6 +68,8 @@ export interface ConditionalFormatRule {
 	border?: BorderRule;
 	bold?: boolean;
 	strikethrough?: boolean;
+	/** Runtime only: a rule read from a nested vault applies only inside that vault's folder. */
+	scope?: string;
 }
 
 export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
@@ -114,7 +119,14 @@ export interface FolderToolkitSettings {
 	conditionalFormats: ConditionalFormatRule[];
 	hiddenPaths: string[];
 	showHiddenItems: boolean;
+	/** Read and save folder appearance in the nested vault that owns a folder. */
+	nestedVaults: boolean;
+	/** How the explorer marks a folder that is itself a vault. */
+	vaultMarker: VaultMarker;
 }
+
+export const VAULT_MARKERS = ['off', 'icon', 'border', 'both'] as const;
+export type VaultMarker = (typeof VAULT_MARKERS)[number];
 
 export const DEFAULT_SETTINGS: FolderToolkitSettings = {
 	schemaVersion: SCHEMA_VERSION,
@@ -124,4 +136,6 @@ export const DEFAULT_SETTINGS: FolderToolkitSettings = {
 	conditionalFormats: DEFAULT_CONDITIONAL_FORMATS,
 	hiddenPaths: [],
 	showHiddenItems: false,
+	nestedVaults: true,
+	vaultMarker: 'both',
 };

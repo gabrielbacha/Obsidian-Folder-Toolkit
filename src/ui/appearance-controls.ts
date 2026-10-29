@@ -1,7 +1,7 @@
 import { setIcon } from 'obsidian';
 import { normalizeHex, paletteTemplate } from '../colors';
 import type FolderToolkitPlugin from '../main';
-import type { ColorChoice } from '../types';
+import type { ColorChoice, PaletteTemplateId } from '../types';
 
 export interface ColorControlOptions {
 	selected: ColorChoice | undefined;
@@ -15,7 +15,11 @@ export interface ColorControlOptions {
 export class AppearanceControlRenderer {
 	private cleanups: Array<() => void> = [];
 
-	constructor(private readonly toolkit: FolderToolkitPlugin) {}
+	/** `palette` returns the palette to show. It defaults to this vault's palette. */
+	constructor(
+		toolkit: FolderToolkitPlugin,
+		private readonly palette: () => PaletteTemplateId = () => toolkit.settings.paletteTemplateId,
+	) {}
 
 	dispose(): void {
 		for (const cleanup of this.cleanups) cleanup();
@@ -30,7 +34,7 @@ export class AppearanceControlRenderer {
 			this.choiceButton(modes, 'Inherit color', selected === undefined, () => onSelect(undefined, true), disabled);
 			this.choiceButton(modes, 'No color', selected?.kind === 'none', () => onSelect({ kind: 'none' }, true), disabled);
 		}
-		const template = paletteTemplate(this.toolkit.settings.paletteTemplateId);
+		const template = paletteTemplate(this.palette());
 		const selectedStrength = selected && selected.kind !== 'none' ? selected.strength : undefined;
 		let activeChoice: Exclude<ColorChoice, { kind: 'none' }> | undefined = selected?.kind === 'none' ? undefined : selected;
 		const paletteLabel = host.createDiv('ft-palette-label');

@@ -10,7 +10,7 @@ const MANAGED_CLASSES = [
 	'ft-background-block', 'ft-background-block-cascade', 'ft-border-box', 'ft-border-rail',
 	'ft-border-shaded', 'ft-direct-color-rule',
 	'ft-permanent-hidden', 'ft-focus-hidden', 'ft-focus-ancestor', 'ft-focus-root',
-	'ft-is-bold', 'ft-is-strikethrough',
+	'ft-is-bold', 'ft-is-strikethrough', 'ft-vault-icon', 'ft-vault-border',
 ] as const;
 
 const MANAGED_PROPERTIES = [
@@ -22,6 +22,13 @@ function isHtmlElement(element: Element): element is HTMLElement {
 	return 'style' in element && 'dataset' in element;
 }
 
+/** Nested vault lookups that the explorer needs. */
+export interface ExplorerNestedVaults {
+	/** Called with the folder paths that the explorer shows. */
+	probe(folderPaths: string[]): void;
+	isVaultRoot(path: string): boolean;
+}
+
 export class ExplorerManager {
 	private readonly observers = new Map<HTMLElement, MutationObserver>();
 	private frame: number | null = null;
@@ -30,6 +37,7 @@ export class ExplorerManager {
 		private readonly app: App,
 		private readonly getSettings: () => FolderToolkitSettings,
 		private readonly getFocusPath: () => string | null,
+		private readonly nestedVaults?: ExplorerNestedVaults,
 	) {}
 
 	start(): void {
@@ -77,6 +85,7 @@ export class ExplorerManager {
 				if (path && row && isHtmlElement(row)) rows.set(row, path);
 			}
 			for (const [row, path] of rows) this.applyRow(row, path, settings, focusPath);
+			this.nestedVaults?.probe([...rows].filter(([row]) => row.classList.contains('nav-folder')).map(([, path]) => path));
 		}
 	}
 
@@ -161,6 +170,9 @@ export class ExplorerManager {
 		syncClass(row, 'ft-focus-root', relation === 'root');
 		syncClass(row, 'ft-is-bold', appearance.bold === true);
 		syncClass(row, 'ft-is-strikethrough', appearance.strikethrough === true);
+		const isVault = isFolder && this.nestedVaults?.isVaultRoot(path) === true;
+		syncClass(row, 'ft-vault-icon', isVault && (settings.vaultMarker === 'icon' || settings.vaultMarker === 'both'));
+		syncClass(row, 'ft-vault-border', isVault && (settings.vaultMarker === 'border' || settings.vaultMarker === 'both'));
 
 		syncStyle(row.style, '--ft-text-light', appearance.text?.foregroundLight ?? null);
 		syncStyle(row.style, '--ft-text-dark', appearance.text?.foregroundDark ?? null);
