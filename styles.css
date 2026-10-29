@@ -743,6 +743,34 @@ button.ft-color-strength__reset svg {
 	background: var(--modal-background, var(--background-primary));
 }
 
+.ft-modal-footer__transfer {
+	display: flex;
+	gap: var(--size-4-2);
+	margin-inline-end: auto;
+}
+
+.ft-modal-footer__transfer button {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.ft-modal-footer__icon {
+	display: inline-flex;
+}
+
+.ft-modal-footer__icon svg {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.ft-modal-footer__note {
+	flex-basis: 100%;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-align: end;
+}
+
 .ft-modal-footer .ft-field-error {
 	flex-basis: 100%;
 	margin-top: 0;
@@ -957,6 +985,19 @@ button.ft-palette-option.is-selected {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 50%;
 	background-color: var(--ft-preview-color) !important;
+}
+
+.ft-rule-section--missing .ft-rule-section__count {
+	color: var(--text-warning);
+}
+
+.ft-missing-modal__list {
+	max-height: 60vh;
+	overflow-y: auto;
+}
+
+.ft-rule-section--missing > .ft-card-hint {
+	margin-bottom: var(--size-4-2);
 }
 
 .ft-rule-card__actions {

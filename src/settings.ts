@@ -89,7 +89,7 @@ function normalizeDescendants(value: unknown): DescendantRule | undefined {
 	};
 }
 
-function normalizeAppearance(value: unknown, paletteLength: number): AppearanceRule | null {
+export function normalizeAppearance(value: unknown, paletteLength: number): AppearanceRule | null {
 	if (!isRecord(value)) return null;
 	const text = normalizeTextAppearance(value.text, paletteLength);
 	const background = normalizeEffect(value.background, paletteLength);

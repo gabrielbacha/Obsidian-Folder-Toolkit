@@ -1,13 +1,26 @@
 import { Menu, Notice, Plugin, TAbstractFile, TFolder, type App } from 'obsidian';
 import { ExplorerManager } from './explorer-manager';
 import { AppearancePreviewStore } from './appearance-preview';
-import { normalizePaletteTemplateId } from './colors';
+import { normalizePaletteTemplateId, paletteTemplate } from './colors';
 import { NestedVaultStore, tagAppearancePalette, type AppearanceOwner } from './nested-vaults';
 import { findNearestContainingPath, isSameOrDescendant, replacePathRoot } from './path-utils';
 import { normalizeSettings } from './settings';
+import {
+	OWN_RULE_KEY,
+	collectAppearance,
+	findMissingRoots,
+	parseAppearance,
+	planPaste,
+	reattachRules,
+	removeRulesUnder,
+	serializeAppearance,
+	type CopiedAppearance,
+	type MissingRoot,
+} from './rule-transfer';
 import { TabManager } from './tab-manager';
 import { VAULT_MARKERS, type AppearanceRule, type ConditionalFormatRule, type FolderToolkitSettings, type PaletteTemplateId, type VaultMarker } from './types';
 import { AppearanceModal, type AppearanceTarget } from './ui/appearance-modal';
+import { MissingItemsModal } from './ui/missing-items-modal';
 
 /** Time after a rename in a nested vault before the moved rules are checked again. */
 const NESTED_RENAME_RECHECK_MS = 2000;
@@ -69,6 +82,12 @@ export default class FolderToolkitPlugin extends Plugin {
 			id: 'reload-nested-vault-appearance',
 			name: 'Reload appearance from nested vaults',
 			callback: () => void this.refreshNestedVaults(),
+		});
+
+		this.addCommand({
+			id: 'relink-missing-items',
+			name: 'Relink missing items',
+			callback: () => this.relinkMissingItems(),
 		});
 
 		this.addCommand({
@@ -154,6 +173,103 @@ export default class FolderToolkitPlugin extends Plugin {
 	async removeAppearance(path: string): Promise<void> {
 		delete this.settings.appearanceRules[path];
 		await this.persist();
+	}
+
+	/** Rules saved in this vault whose file or folder no longer exists, grouped by the topmost missing path. */
+	missingAppearanceRoots(): MissingRoot[] {
+		return findMissingRoots(this.settings.appearanceRules, (path) => this.app.vault.getAbstractFileByPath(path) !== null);
+	}
+
+	/** Opens the dialog that lists missing items, where each can be reattached or removed. */
+	relinkMissingItems(): void {
+		new MissingItemsModal(this).open();
+	}
+
+	/** Moves the rules of a missing item and its descendants to `newPath`. */
+	async reattachAppearance(oldPath: string, newPath: string): Promise<void> {
+		const { rules, moved, skipped } = reattachRules(this.settings.appearanceRules, oldPath, newPath);
+		this.settings.appearanceRules = rules;
+		await this.persist();
+		const kept = skipped > 0 ? ` ${skipped} kept the rule that ${newPath} already had.` : '';
+		new Notice(`Moved ${moved} appearance ${moved === 1 ? 'rule' : 'rules'} to ${newPath}.${kept}`);
+	}
+
+	/** Removes the rules of `path` and everything below it from this vault. */
+	async removeAppearanceUnder(path: string): Promise<void> {
+		this.settings.appearanceRules = removeRulesUnder(this.settings.appearanceRules, path);
+		await this.persist();
+	}
+
+	/**
+	 * Copies the appearance of `path` and of every styled item below it to the clipboard,
+	 * with relative paths. `ownRule` replaces the saved rule of `path`, so that the editor
+	 * can copy what it shows, including unsaved changes.
+	 */
+	async copyAppearance(path: string, ownRule?: AppearanceRule): Promise<void> {
+		const copied = collectAppearance(this.savedAppearanceRules(), path);
+		if (ownRule !== undefined) {
+			if (Object.keys(ownRule).length > 0) copied[OWN_RULE_KEY] = structuredClone(ownRule);
+			else delete copied[OWN_RULE_KEY];
+		}
+		const count = Object.keys(copied).length;
+		if (count === 0) {
+			new Notice('This item has no appearance to copy.');
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(serializeAppearance(copied));
+			new Notice(`Copied ${count} appearance ${count === 1 ? 'rule' : 'rules'}. Paste them in the appearance editor of any file or folder, in this vault or another.`);
+		} catch (error) {
+			console.error('Folder Toolkit: could not write to the clipboard.', error);
+			new Notice('Could not copy the appearance to the clipboard.');
+		}
+	}
+
+	/** Reads appearance copied by Folder Toolkit from the clipboard. Shows a notice and returns null when there is none. */
+	async readCopiedAppearance(): Promise<CopiedAppearance | null> {
+		let text: string;
+		try {
+			text = await navigator.clipboard.readText();
+		} catch (error) {
+			console.error('Folder Toolkit: could not read the clipboard.', error);
+			new Notice('Could not read the clipboard.');
+			return null;
+		}
+		const copied = parseAppearance(text, paletteTemplate(this.settings.paletteTemplateId).colors.length);
+		if (!copied) new Notice('The clipboard has no copied appearance.');
+		return copied;
+	}
+
+	/** Saves copied rules for the items below `path` that exist. Returns how many were saved and skipped. */
+	async pasteDescendantAppearance(path: string, copied: CopiedAppearance): Promise<{ saved: number; skipped: number }> {
+		const descendants = Object.fromEntries(Object.entries(copied).filter(([key]) => key !== OWN_RULE_KEY));
+		const { writes, skipped } = planPaste(descendants, path, (candidate) => this.app.vault.getAbstractFileByPath(candidate) !== null);
+		const nestedWrites = new Map<string, Record<string, AppearanceRule>>();
+		let ownChanged = false;
+		for (const [targetPath, rule] of Object.entries(writes)) {
+			const owner = this.settings.nestedVaults ? await this.nested.ownerOf(targetPath) : { root: null, relativePath: targetPath };
+			if (owner.root === null) {
+				this.settings.appearanceRules[targetPath] = rule;
+				ownChanged = true;
+			} else {
+				const group = nestedWrites.get(owner.root) ?? {};
+				group[owner.relativePath] = rule;
+				nestedWrites.set(owner.root, group);
+			}
+		}
+		if (ownChanged) await this.persist();
+		for (const [root, group] of nestedWrites) {
+			await this.nested.mutate(root, (rules) => {
+				Object.assign(rules, structuredClone(group));
+				return true;
+			});
+		}
+		return { saved: Object.keys(writes).length, skipped };
+	}
+
+	/** Saved rules of this vault and nested vaults, without unsaved previews. */
+	private savedAppearanceRules(): Record<string, AppearanceRule> {
+		return this.nested.effective(this.settings).appearanceRules;
 	}
 
 	/** Shows `rule` before it is saved. `palette` is the palette of a nested vault that owns `path`. */
@@ -426,23 +542,20 @@ export default class FolderToolkitPlugin extends Plugin {
 	}
 
 	/**
-	 * Removes rules saved in this vault. Rules in a nested vault stay: that vault removes
-	 * them itself when it sees the delete, and a write from here could race with it.
+	 * Keeps appearance rules after a delete. A folder moved outside Obsidian, for example in
+	 * Finder or by a sync tool, also arrives as a delete. The rules stay so that they can be
+	 * reattached from the missing items list in settings, or removed there.
 	 */
 	private async handleDelete(file: TAbstractFile): Promise<void> {
 		this.appearancePreview.clearSubtree(file.path);
 		this.nested?.forget(file.path);
-		const oldAppearanceCount = Object.keys(this.settings.appearanceRules).length;
-		this.settings.appearanceRules = Object.fromEntries(
-			Object.entries(this.settings.appearanceRules).filter(([path]) => !isSameOrDescendant(path, file.path)),
-		);
 		const oldHiddenCount = this.settings.hiddenPaths.length;
 		this.settings.hiddenPaths = this.settings.hiddenPaths.filter((path) => !isSameOrDescendant(path, file.path));
 		if (this.focusPath && isSameOrDescendant(this.focusPath, file.path)) {
 			this.exitFocus(false);
 			new Notice('Folder focus cleared because the focused folder was deleted.');
 		}
-		if (oldAppearanceCount !== Object.keys(this.settings.appearanceRules).length || oldHiddenCount !== this.settings.hiddenPaths.length) {
+		if (oldHiddenCount !== this.settings.hiddenPaths.length) {
 			await this.persist();
 		} else {
 			this.explorer.reconcileSoon();

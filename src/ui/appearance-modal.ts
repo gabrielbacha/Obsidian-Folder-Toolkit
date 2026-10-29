@@ -1,4 +1,4 @@
-import { Modal, TAbstractFile, TFolder } from 'obsidian';
+import { Modal, Notice, TAbstractFile, TFolder, setIcon } from 'obsidian';
 import {
 	createFileAppearancePreset,
 	createFolderAppearancePreset,
@@ -16,6 +16,7 @@ import { AppearanceControlRenderer } from './appearance-controls';
 import { buildPreviewTree, stylePreviewTree, type PreviewTree } from './preview-tree';
 import type FolderToolkitPlugin from '../main';
 import { tagAppearancePalette, type AppearanceOwner } from '../nested-vaults';
+import { OWN_RULE_KEY, type CopiedAppearance } from '../rule-transfer';
 import type { AppearanceRule, BorderAppearanceRule, BorderRule, DescendantRule, FolderToolkitSettings, PaletteTemplateId, TextAppearanceRule } from '../types';
 
 /** The vault that stores an item's appearance, its palette, and the rule saved there. */
@@ -46,6 +47,8 @@ export class AppearanceModal extends Modal {
 	private textCascade: boolean;
 	private backgroundCascade: boolean;
 	private presetsOpen = false;
+	/** Copied styles for items inside this folder, saved together with the draft. */
+	private pastedDescendants: CopiedAppearance | null = null;
 
 	constructor(
 		private readonly toolkit: FolderToolkitPlugin,
@@ -107,6 +110,20 @@ export class AppearanceModal extends Modal {
 
 		const footer = this.contentEl.createDiv('ft-modal-footer');
 		const error = footer.createDiv({ cls: 'ft-field-error', attr: { role: 'status' } });
+		if (this.pastedDescendants) {
+			const count = Object.keys(this.pastedDescendants).length;
+			footer.createDiv({
+				text: `Save also applies ${count} copied ${count === 1 ? 'style' : 'styles'} to matching items inside this folder.`,
+				cls: 'ft-modal-footer__note',
+			});
+		}
+		const transfer = footer.createDiv('ft-modal-footer__transfer');
+		const copy = transfer.createEl('button', { text: 'Copy', attr: { type: 'button', 'aria-label': 'Copy appearance', title: 'Copy this appearance and the styles of items inside' } });
+		setIcon(copy.createSpan({ cls: 'ft-modal-footer__icon', prepend: true }), 'copy');
+		copy.addEventListener('click', () => { void this.toolkit.copyAppearance(this.path, this.draft); });
+		const paste = transfer.createEl('button', { text: 'Paste', attr: { type: 'button', 'aria-label': 'Paste appearance', title: 'Paste a copied appearance. Save keeps it.' } });
+		setIcon(paste.createSpan({ cls: 'ft-modal-footer__icon', prepend: true }), 'clipboard-paste');
+		paste.addEventListener('click', () => { void this.paste(); });
 		const clear = footer.createEl('button', { text: 'Reset to inherited', attr: { type: 'button' } });
 		clear.addEventListener('click', () => {
 			this.draft = {};
@@ -220,11 +237,30 @@ export class AppearanceModal extends Modal {
 		return Math.max(0, ordered.findIndex((candidate) => candidate.path === item.path)) % paletteLength;
 	}
 
+	/** Loads a copied appearance into the draft. Copied styles for items inside are saved with Save. */
+	private async paste(): Promise<void> {
+		const copied = await this.toolkit.readCopiedAppearance();
+		if (!copied) return;
+		const { [OWN_RULE_KEY]: own, ...descendants } = copied;
+		this.pastedDescendants = this.isFolder && Object.keys(descendants).length > 0 ? descendants : null;
+		this.draft = structuredClone(own ?? {});
+		this.textCascade = this.draft.text?.cascade ?? false;
+		this.backgroundCascade = this.draft.background?.cascade ?? false;
+		if (isBorderRule(this.draft.border)) this.rememberedBorder = structuredClone(this.draft.border);
+		if (this.draft.descendants) this.rememberedDescendants = structuredClone(this.draft.descendants);
+		this.render();
+	}
+
 	private async save(button: HTMLButtonElement, error: HTMLElement): Promise<void> {
 		button.disabled = true;
 		try {
 			if (this.isNested()) await this.toolkit.setAppearance(this.path, this.draft, this.target.owner);
 			else await this.toolkit.setAppearance(this.path, this.draft);
+			if (this.pastedDescendants) {
+				const { saved, skipped } = await this.toolkit.pasteDescendantAppearance(this.path, this.pastedDescendants);
+				const missing = skipped > 0 ? ` ${skipped} skipped because the item does not exist here.` : '';
+				new Notice(`Saved ${saved} copied ${saved === 1 ? 'style' : 'styles'} inside this folder.${missing}`);
+			}
 			this.onSaved?.();
 			this.close();
 		} catch {

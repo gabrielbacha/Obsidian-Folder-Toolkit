@@ -30,6 +30,8 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 - Permanent file and folder hiding with a searchable manager
 - A temporary focused-folder view that presents any nested folder as the visible explorer root
 - Segment-safe path updates when files and folders are renamed or deleted
+- Reattach the appearance of items that were moved outside Obsidian
+- Copy the appearance of a file or folder and its contents, and paste it in the same vault or another vault
 - Multiple file-explorer panes, desktop, and mobile support
 - Efficient differential explorer and tab updates that avoid rewriting unchanged DOM styles
 
@@ -38,6 +40,7 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
 Right-click or long-press a file or folder and use the actions in Obsidian's plugin-action group:
 
 - **Edit folder appearance…** or **Edit file appearance…** opens a unified background, border, and text editor with bold, strikethrough, and folder descendant-inheritance controls. New folder treatments start with **Include descendants** off. The folder editor splits presets into two groups that you can combine. **This folder** presets (Grouping folder, Shaded box, Section rail, Minimal label, Highlight, Attention, Muted, and Archived) set only the background, border, and label of the folder row. **Subfolders** presets (Folder only, Inherit colors, Subfolder rails, Shaded rails, Subfolder boxes, and Shaded boxes) set only how that style reaches subfolders and notes. The file editor offers Important, Index note, Tinted, Highlight, Attention, Draft, Done, and Muted presets. Presets sit in a collapsed section below the controls. Each preset button shows a live sample of the item and its contents with that style applied, using the active palette, and its description appears on hover. Palette-based presets pick the first color not already used by a sibling of the same kind. File presets replace the unsaved draft. Each folder preset group replaces only its own settings. All presets remain editable before Save. File borders enclose one explorer row; folder borders and optional shading enclose their subtree. **Clear border** returns to conditional or generated styling, while **No border** explicitly blocks it for that item. Direct subfolders can receive alternating colors from the active palette. Draft changes preview directly in the file explorer; **Save** keeps them and **Cancel** restores the saved rule. The Save and Cancel bar stays visible at the bottom of the editor while you scroll.
+- In the appearance editor, **Copy** in the bottom bar copies the style shown in the editor and the saved styles of every item inside the folder. **Paste** loads a copied style into the editor of another file or folder, in this vault or in another vault; **Save** keeps it. For a folder, Save also applies the copied styles of items inside to the items with the same relative path. Items that do not exist under the target are skipped. Styles of other items under the target stay unchanged. Palette colors use the palette of the vault where you paste.
 - **Hide file/folder** permanently removes the item from the explorer until hidden items are shown or the path is unhidden.
 - **Focus this folder** temporarily hides unrelated branches. Use **Exit folder focus** from a visible folder or the command palette to restore the explorer.
 
@@ -49,6 +52,10 @@ Use **Conditional formatting** in settings to style items by name anywhere in th
 
 When a file or folder is renamed or moved, saved rules follow the path and open tabs immediately resolve their appearance from the new folder hierarchy.
 
+Every device that runs Folder Toolkit on a synced vault must have this version loaded. An older version on another device removes the rules when the move reaches it, and Sync then copies the settings without them.
+
+Obsidian cannot see a move made outside it, for example in Finder, with git, or by a sync tool. It reports the move as a delete. For this reason, Folder Toolkit keeps the rules of deleted items. They appear under **Missing items** in the settings manager, grouped by the topmost missing folder. Select **Reattach…**, then pick the item in its new place: the rules of that item and of everything inside it move there. A rule that the new place already has is kept. Select the remove button to discard rules of items that you deleted on purpose. You can also run **Folder Toolkit: Relink missing items** from the command palette. It opens the same list in a dialog.
+
 Folder focus lasts only for the current Obsidian session. Permanent hiding and appearance settings persist.
 
 ### Nested vaults
@@ -59,7 +66,7 @@ A folder can itself be a vault, for example when one vault holds several others.
 - A rule that the current vault saves for an exact path wins over nested rules. A deeper vault wins over an outer one.
 - Name rules from a nested vault apply only inside that vault. Hidden paths from a nested vault do not apply.
 - A nested vault that is open in another window reloads its settings when this vault writes them. This vault reads nested settings again when its window gets focus, or when you run **Reload appearance from nested vaults**.
-- Renaming or moving an item inside a nested vault moves its rules in that vault's settings. Deleting an item leaves the nested settings unchanged, because the nested vault removes the rule itself when it sees the delete. Obsidian does not update links in the nested vault after a rename made from the outer vault, so rename notes from the vault that owns them.
+- Renaming or moving an item inside a nested vault moves its rules in that vault's settings. Deleting an item leaves the nested settings unchanged. Rules of missing items in a nested vault appear under **Missing items** in that vault's own settings. Obsidian does not update links in the nested vault after a rename made from the outer vault, so rename notes from the vault that owns them.
 
 ## Performance
 

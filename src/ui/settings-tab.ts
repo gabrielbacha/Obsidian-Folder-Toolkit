@@ -3,9 +3,11 @@ import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
 import { isBackgroundEnabled, isBorderEnabled, isFontEnabled } from '../conditional-format';
 import type FolderToolkitPlugin from '../main';
+import type { MissingRoot } from '../rule-transfer';
 import type { AppearanceRule, ColorChoice, ConditionalFormatRule, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
+import { MISSING_ITEMS_HINT, renderMissingItemCards } from './missing-items-modal';
 import { replaceOwnedRoot } from './dom-lifecycle';
 import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, MORE_PLUGINS_URL, WEBSITE_URL } from '../external-links';
 
@@ -555,7 +557,9 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		const renderResults = (): void => {
 			this.search = search.value;
 			results.empty();
-			this.renderAppearanceRules(results);
+			const missing = this.toolkit.missingAppearanceRoots();
+			this.renderMissingRules(results, missing);
+			this.renderAppearanceRules(results, missing);
 			this.renderHiddenPaths(results);
 		};
 		search.addEventListener('input', renderResults);
@@ -566,8 +570,20 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		};
 	}
 
-	private renderAppearanceRules(container: HTMLElement): void {
-		const paths = Object.keys(this.toolkit.settings.appearanceRules).filter((path) => this.matches(path)).sort();
+	/** Lists rules whose item was moved or deleted outside Obsidian. */
+	private renderMissingRules(container: HTMLElement, missing: readonly MissingRoot[]): void {
+		if (missing.length === 0) return;
+		const shown = missing.filter((root) => this.matches(root.path));
+		const section = this.ruleSection(container, 'Missing items', shown.length);
+		section.addClass('ft-rule-section--missing');
+		section.createDiv({ text: MISSING_ITEMS_HINT, cls: 'ft-card-hint' });
+		if (shown.length === 0) this.emptyState(section, 'No missing items match this search.');
+		else renderMissingItemCards(section, this.toolkit, shown, () => this.update());
+	}
+
+	private renderAppearanceRules(container: HTMLElement, missing: readonly MissingRoot[]): void {
+		const isMissing = (path: string): boolean => missing.some((root) => path === root.path || path.startsWith(`${root.path}/`));
+		const paths = Object.keys(this.toolkit.settings.appearanceRules).filter((path) => this.matches(path) && !isMissing(path)).sort();
 		const section = this.ruleSection(container, 'Appearance rules', paths.length);
 		if (paths.length === 0) {
 			this.emptyState(section, this.search ? 'No appearance rules match this search.' : 'No appearance rules yet. Right-click a file or folder and choose Edit appearance.');
@@ -591,10 +607,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		if (textStyles.length > 0) previews.createDiv({ text: `Text style: ${textStyles.join(' · ')}`, cls: 'ft-rule-preview' });
 
 		const actions = card.createDiv('ft-rule-card__actions');
-		const exists = this.toolkit.app.vault.getAbstractFileByPath(path) !== null;
-		const edit = actions.createEl('button', { text: 'Edit', attr: { type: 'button' } });
-		edit.disabled = !exists;
-		edit.title = exists ? `Edit appearance for ${name}` : 'This path no longer exists';
+		const edit = actions.createEl('button', { text: 'Edit', attr: { type: 'button', title: `Edit appearance for ${name}` } });
 		edit.addEventListener('click', () => new AppearanceModal(this.toolkit, path, () => this.update()).open());
 		const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove appearance rule for ${name}` } });
 		setIcon(remove, 'trash-2');
