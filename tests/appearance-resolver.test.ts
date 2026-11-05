@@ -365,4 +365,21 @@ describe('appearance resolution', () => {
 		expect(resolved.strikethrough).toBe(false);
 	});
 
+	it('passes subfolder border and shading strengths to direct subfolders', () => {
+		const custom: FolderToolkitSettings = {
+			...settings,
+			appearanceRules: {
+				Root: { descendants: { enabled: true, style: 'box', shading: true, borderStrength: 20, shadingStrength: 4 } },
+			},
+		};
+		const sub = resolveAppearance('Root/Sub', { settings: custom, getDescendantIndex: () => 0 });
+		expect(sub.border?.color.strength).toBe(20);
+		expect(sub.border?.shadingStrength).toBe(4);
+
+		const plain = resolveAppearance('Root/Sub', {
+			settings: { ...settings, appearanceRules: { Root: { descendants: { enabled: true, style: 'box' } } } },
+		});
+		expect(plain.border?.color.strength).toBeUndefined();
+		expect(plain.border?.shadingStrength).toBeUndefined();
+	});
 });

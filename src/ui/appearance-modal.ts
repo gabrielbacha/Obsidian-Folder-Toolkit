@@ -492,6 +492,36 @@ export class AppearanceModal extends Modal {
 			this.draft.descendants = structuredClone(this.rememberedDescendants);
 			this.render();
 		});
+
+		const active = this.draft.descendants;
+		this.renderDescendantStrength(card, 'Border strength', 'borderStrength', active?.style === 'box' ? 42 : 55, active === undefined);
+		this.renderDescendantStrength(card, 'Shading strength', 'shadingStrength', 9, active?.shading !== true);
+	}
+
+	private renderDescendantStrength(
+		card: HTMLElement,
+		label: string,
+		key: 'borderStrength' | 'shadingStrength',
+		defaultValue: number,
+		disabled: boolean,
+	): void {
+		this.controls.renderStrengthSlider(card, {
+			label,
+			value: this.draft.descendants?.[key],
+			defaultValue,
+			disabled,
+			onInput: (value) => {
+				this.rememberedDescendants = { ...this.rememberedDescendants, [key]: value };
+				this.draft.descendants = structuredClone(this.rememberedDescendants);
+				this.refreshPreview();
+			},
+			onReset: () => {
+				const { [key]: _removed, ...rest } = this.rememberedDescendants;
+				this.rememberedDescendants = rest;
+				this.draft.descendants = structuredClone(this.rememberedDescendants);
+				this.render();
+			},
+		});
 	}
 
 	private clearButton(container: HTMLElement, label: string, disabled: boolean, onClick: () => void): void {

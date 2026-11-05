@@ -15,7 +15,7 @@ export function hasDirectAppearance(rule: AppearanceRule | undefined): boolean {
 export interface ResolvedAppearance {
 	text: ResolvedColor | null;
 	background: ResolvedColor | null;
-	border: { style: 'box' | 'rail'; color: ResolvedColor; thickness?: 'thin' | 'medium' | 'thick'; shading?: boolean } | null;
+	border: { style: 'box' | 'rail'; color: ResolvedColor; thickness?: 'thin' | 'medium' | 'thick'; shading?: boolean; shadingStrength?: number } | null;
 	bold: boolean;
 	strikethrough: boolean;
 }
@@ -105,7 +105,13 @@ function effectiveBorder(
 			style: descendants.style,
 			thickness: descendants.thickness,
 			shading: descendants.shading,
-			color: { kind: 'preset', slot, ...(descendants.palette ? { palette: descendants.palette } : {}) },
+			...(descendants.shadingStrength === undefined ? {} : { shadingStrength: descendants.shadingStrength }),
+			color: {
+				kind: 'preset',
+				slot,
+				...(descendants.borderStrength === undefined ? {} : { strength: descendants.borderStrength }),
+				...(descendants.palette ? { palette: descendants.palette } : {}),
+			},
 		};
 	}
 	return undefined;
@@ -128,7 +134,7 @@ export function resolveAppearance(path: string, context: ResolverContext): Resol
 	return {
 		text: resolvedText ? resolveTextAgainstBackground(resolvedText, resolvedBackground) : automaticText,
 		background: resolvedBackground,
-		border: border && resolvedBorder ? { style: border.style, color: resolvedBorder, thickness: border.thickness, shading: border.shading } : null,
+		border: border && resolvedBorder ? { style: border.style, color: resolvedBorder, thickness: border.thickness, shading: border.shading, ...(border.shadingStrength === undefined ? {} : { shadingStrength: border.shadingStrength }) } : null,
 		bold: styles.bold,
 		strikethrough: styles.strikethrough,
 	};
