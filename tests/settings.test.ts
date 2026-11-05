@@ -187,4 +187,16 @@ describe('settings normalization', () => {
 		expect(normalizeSettings({ nestedVaults: false, vaultMarker: 'icon' })).toMatchObject({ nestedVaults: false, vaultMarker: 'icon' });
 		expect(normalizeSettings({ vaultMarker: 'sparkles' }).vaultMarker).toBe('both');
 	});
+
+	it('keeps optional subfolder strengths and clamps them', () => {
+		const normalized = normalizeSettings({
+			appearanceRules: {
+				Root: { descendants: { enabled: true, style: 'box', shading: true, borderStrength: 30.4, shadingStrength: 140 } },
+				Plain: { descendants: { enabled: true, style: 'rail' } },
+			},
+		});
+		expect(normalized.appearanceRules.Root?.descendants).toMatchObject({ borderStrength: 30, shadingStrength: 100 });
+		expect(normalized.appearanceRules.Plain?.descendants).not.toHaveProperty('borderStrength');
+		expect(normalized.appearanceRules.Plain?.descendants).not.toHaveProperty('shadingStrength');
+	});
 });

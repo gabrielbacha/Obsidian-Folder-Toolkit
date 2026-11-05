@@ -74,7 +74,7 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-shaded {
-	background-color: color-mix(in srgb, var(--ft-border) 9%, var(--background-secondary));
+	background-color: color-mix(in srgb, var(--ft-border) var(--ft-shading-strength, 9%), transparent);
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .ft-permanent-hidden,
@@ -443,7 +443,7 @@ body.theme-dark .ft-live-preview__row.ft-preview-has-text {
 }
 
 .ft-preview-tree .nav-folder.ft-preview-border-shaded {
-	background-color: color-mix(in srgb, var(--ft-preview-border) 9%, var(--background-primary));
+	background-color: color-mix(in srgb, var(--ft-preview-border) var(--ft-preview-shading-strength, 9%), transparent);
 }
 
 .ft-preview-children {

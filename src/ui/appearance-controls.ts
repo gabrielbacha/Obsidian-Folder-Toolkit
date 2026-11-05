@@ -12,6 +12,15 @@ export interface ColorControlOptions {
 	onSelect: (choice: ColorChoice | undefined, rerender: boolean) => void;
 }
 
+export interface StrengthSliderOptions {
+	label: string;
+	value: number | undefined;
+	defaultValue: number;
+	disabled?: boolean;
+	onInput: (value: number) => void;
+	onReset: () => void;
+}
+
 export class AppearanceControlRenderer {
 	private cleanups: Array<() => void> = [];
 
@@ -24,6 +33,29 @@ export class AppearanceControlRenderer {
 	dispose(): void {
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups = [];
+	}
+
+	/** Renders a 0-100% slider with a reset button. `value` undefined means the default is in use. */
+	renderStrengthSlider(container: HTMLElement, options: StrengthSliderOptions): void {
+		const { label, value, defaultValue, disabled = false, onInput, onReset } = options;
+		const current = value ?? defaultValue;
+		const control = container.createDiv('ft-color-strength');
+		const labelEl = control.createEl('label', { text: label });
+		const actions = labelEl.createSpan('ft-color-strength__actions');
+		const resetLabel = `Reset ${label.toLowerCase()} to default`;
+		const reset = actions.createEl('button', { cls: 'clickable-icon ft-color-strength__reset', attr: { type: 'button', 'aria-label': resetLabel, title: resetLabel } });
+		setIcon(reset, 'rotate-ccw');
+		reset.disabled = disabled || value === undefined;
+		const valueEl = actions.createSpan({ text: `${current}%`, cls: 'ft-color-strength__value' });
+		const slider = control.createEl('input', { attr: { type: 'range', min: '0', max: '100', step: '1', value: String(current), 'aria-label': label } });
+		slider.disabled = disabled;
+		slider.addEventListener('input', () => {
+			const strength = Number(slider.value);
+			valueEl.textContent = `${strength}%`;
+			reset.disabled = false;
+			onInput(strength);
+		});
+		reset.addEventListener('click', onReset);
 	}
 
 	renderColorControls(container: HTMLElement, options: ColorControlOptions): void {
@@ -113,27 +145,21 @@ export class AppearanceControlRenderer {
 		color.addEventListener('input', () => { text.value = color.value.toUpperCase(); commit(color.value); });
 		text.addEventListener('input', () => commit(text.value));
 		if (selected && selected.kind !== 'none') {
-			const strengthControl = host.createDiv('ft-color-strength');
-			const strengthLabel = strengthControl.createEl('label', { text: 'Color strength' });
-			const currentStrength = selected.strength ?? defaultStrength;
-			const actions = strengthLabel.createSpan('ft-color-strength__actions');
-			const reset = actions.createEl('button', { cls: 'clickable-icon ft-color-strength__reset', attr: { type: 'button', 'aria-label': 'Reset color strength to default', title: 'Reset color strength to default' } });
-			setIcon(reset, 'rotate-ccw');
-			reset.disabled = disabled || selected.strength === undefined;
-			const value = actions.createSpan({ text: `${currentStrength}%`, cls: 'ft-color-strength__value' });
-			const slider = strengthControl.createEl('input', { attr: { type: 'range', min: '0', max: '100', step: '1', value: String(currentStrength), 'aria-label': 'Color strength' } });
-			slider.disabled = disabled;
-			slider.addEventListener('input', () => {
-				if (!activeChoice) return;
-				const strength = Number(slider.value);
-				value.textContent = String(strength) + '%';
-				activeChoice = { ...activeChoice, strength };
-				onSelect(activeChoice, false);
-			});
-			reset.addEventListener('click', () => {
-				if (!activeChoice) return;
-				const { strength: _strength, ...defaultChoice } = activeChoice;
-				onSelect(defaultChoice, true);
+			this.renderStrengthSlider(host, {
+				label: 'Color strength',
+				value: selected.strength,
+				defaultValue: defaultStrength,
+				disabled,
+				onInput: (strength) => {
+					if (!activeChoice) return;
+					activeChoice = { ...activeChoice, strength };
+					onSelect(activeChoice, false);
+				},
+				onReset: () => {
+					if (!activeChoice) return;
+					const { strength: _strength, ...defaultChoice } = activeChoice;
+					onSelect(defaultChoice, true);
+				},
 			});
 		}
 		const setOpen = (open: boolean, restoreFocus = false): void => {

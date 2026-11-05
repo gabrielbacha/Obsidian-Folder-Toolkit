@@ -32,6 +32,8 @@ export interface BorderRule {
 	color: Exclude<ColorChoice, { kind: 'none' }>;
 	thickness?: BorderThickness;
 	shading?: boolean;
+	/** Tint strength inside a shaded border, 0-100. Defaults to 9. */
+	shadingStrength?: number;
 }
 
 export type BorderAppearanceRule = BorderRule | { kind: 'none' };
@@ -41,6 +43,10 @@ export interface DescendantRule {
 	style: BorderStyle;
 	thickness?: BorderThickness;
 	shading?: boolean;
+	/** Strength of each subfolder's border color, 0-100. Defaults to the style's default. */
+	borderStrength?: number;
+	/** Tint strength inside each shaded subfolder, 0-100. Defaults to 9. */
+	shadingStrength?: number;
 	/** Runtime only: the palette of the nested vault that owns this rule. */
 	palette?: PaletteTemplateId;
 }

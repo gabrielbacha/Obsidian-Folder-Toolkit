@@ -24,6 +24,7 @@ const PREVIEW_STYLE_PROPERTIES = [
 	'--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-text-strength',
 	'--ft-preview-background', '--ft-preview-background-strength',
 	'--ft-preview-border', '--ft-preview-border-strength', '--ft-preview-border-width',
+	'--ft-preview-shading-strength',
 ] as const;
 
 function parentPath(path: string): string {
@@ -152,6 +153,7 @@ export function stylePreviewTree(tree: PreviewTree, baseSettings: FolderToolkitS
 				? { thin: '1px', medium: '2px', thick: '3px' }
 				: { thin: '2px', medium: '4px', thick: '6px' };
 			el.style.setProperty('--ft-preview-border-width', thicknessMap[border.thickness ?? 'thin']);
+			if (border.shading && border.shadingStrength !== undefined) el.style.setProperty('--ft-preview-shading-strength', `${border.shadingStrength}%`);
 		}
 	}
 }
