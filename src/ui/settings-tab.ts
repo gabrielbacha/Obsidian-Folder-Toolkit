@@ -8,11 +8,17 @@ import type { AppearanceRule, ColorChoice, ConditionalFormatRule, ConditionalMat
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
 import { MISSING_ITEMS_HINT, renderMissingItemCards } from './missing-items-modal';
+import DEFAULT_APPEARANCE_STRENGTH from '../appearance-tokens.json';
+import { ManagedPathIndex } from '../managed-path-index';
+import { containingPathIndex } from '../path-utils';
 import { replaceOwnedRoot } from './dom-lifecycle';
 import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, MORE_PLUGINS_URL, WEBSITE_URL } from '../external-links';
 
 export class FolderToolkitSettingTab extends PluginSettingTab {
+	private readonly savingConditionalIds = new Set<string>();
 	private search = '';
+	private readonly managedIndex = new ManagedPathIndex();
+	private readonly pathPages = new Map<string, number>();
 	private readonly expandedConditionalIds = new Set<string>();
 	private pendingConditionalFocusId: string | null = null;
 	private pendingConditionalReveal = false;
@@ -345,7 +351,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			const validatePattern = (): boolean => {
 				const invalid = pattern.value.trim().length === 0;
 				pattern.toggleClass('is-invalid', invalid);
-				pattern.toggleAttribute('aria-invalid', invalid);
+				pattern.setAttribute('aria-invalid', String(invalid));
 				patternError.toggleClass('is-visible', invalid);
 				return !invalid;
 			};
@@ -403,27 +409,27 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			});
 			const borderStyles = borderCard.createDiv('ft-choice-row');
 			controls.choiceButton(borderStyles, 'Rounded box', border.style === 'box', () => {
-				edit.border = { ...border, style: 'box' };
+				edit.border = { ...(edit.border ?? border), style: 'box' };
 				change(true);
 			}, !borderCheck.checked);
 			controls.choiceButton(borderStyles, 'Vertical rail', border.style === 'rail', () => {
-				edit.border = { ...border, style: 'rail' };
+				edit.border = { ...(edit.border ?? border), style: 'rail' };
 				change(true);
 			}, !borderCheck.checked);
 			const thickness = borderCard.createDiv('ft-choice-row');
 			for (const size of ['thin', 'medium', 'thick'] as const) {
 				controls.choiceButton(thickness, size.charAt(0).toUpperCase() + size.slice(1), border.thickness === size, () => {
-					edit.border = { ...border, thickness: size };
+					edit.border = { ...(edit.border ?? border), thickness: size };
 					change(true);
 				}, !borderCheck.checked);
 			}
 			controls.renderColorControls(borderCard, {
 				selected: border.color,
-				defaultStrength: border.style === 'box' ? 42 : 55,
+				defaultStrength: border.style === 'box' ? DEFAULT_APPEARANCE_STRENGTH.box : DEFAULT_APPEARANCE_STRENGTH.rail,
 				disabled: !borderCheck.checked,
 				onSelect: (choice, rerender) => {
 					if (!choice || choice.kind === 'none') return;
-					edit.border = { ...border, color: choice };
+					edit.border = { ...(edit.border ?? border), color: choice };
 					change(rerender);
 				},
 			});
@@ -438,7 +444,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			fontCheck.addEventListener('change', () => { edit.fontEnabled = fontCheck.checked; change(true); });
 			controls.renderColorControls(textCard, {
 				selected: edit.color,
-				defaultStrength: 100,
+				defaultStrength: DEFAULT_APPEARANCE_STRENGTH.text,
 				includeWhite: true,
 				disabled: !fontCheck.checked,
 				onSelect: (choice, rerender) => {
@@ -464,20 +470,22 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				status.toggleClass('is-dirty', dirty);
 				unsavedBadge.hidden = !dirty;
 				cancel.disabled = !dirty;
-				saveButton.disabled = !dirty;
+				saveButton.disabled = !dirty || this.savingConditionalIds.has(rule.id);
 			};
 			const saveDraft = async (): Promise<void> => {
-				if (sameConditionalRule(edit, rule)) return;
+				if (sameConditionalRule(edit, rule) || this.savingConditionalIds.has(rule.id)) return;
+				const snapshot = structuredClone(edit);
+				this.savingConditionalIds.add(rule.id);
 				saveButton.disabled = true;
 				try {
-					await this.toolkit.updateConditionalFormat(rule.id, edit);
-					this.discardConditionalDraft(rule.id);
+					await this.toolkit.updateConditionalFormat(rule.id, snapshot);
+					if (sameConditionalRule(this.conditionalDrafts.get(rule.id) ?? edit, snapshot)) this.discardConditionalDraft(rule.id);
 					this.update();
 				} catch {
 					error.setText('This rule could not be saved. Try again.');
 					error.addClass('is-visible');
 					saveButton.disabled = false;
-				}
+				} finally { this.savingConditionalIds.delete(rule.id); this.update(); }
 			};
 			cancel.addEventListener('click', () => {
 				this.discardConditionalDraft(rule.id);
@@ -554,45 +562,83 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		});
 		search.value = this.search;
 		const results = wrapper.createDiv('ft-settings-results');
+		let indexed: ReturnType<ManagedPathIndex['read']> | null = null;
+		let missing: Array<MissingRoot & { search: string }> = [];
+		let available: Array<{ path: string; search: string }> = [];
+		const cards = new Map<string, HTMLElement>();
 		const renderResults = (): void => {
 			this.search = search.value;
+			const query = this.search.trim().toLocaleLowerCase();
+			const next = this.managedIndex.read(this.toolkit.settings, this.toolkit.managedPathsRevision?.() ?? '');
+			if (next !== indexed) {
+				indexed = next; cards.clear();
+				missing = this.toolkit.missingAppearanceRoots().map(root => ({ ...root, search: root.path.toLocaleLowerCase() }));
+				const missingIndex = containingPathIndex(missing.map(root => root.path));
+				available = next.appearance.filter(entry => missingIndex(entry.path) === null);
+			}
 			results.empty();
-			const missing = this.toolkit.missingAppearanceRoots();
-			this.renderMissingRules(results, missing);
-			this.renderAppearanceRules(results, missing);
-			this.renderHiddenPaths(results);
+			this.renderMissingRules(results, missing.filter(entry => entry.search.includes(query)), renderResults, missing.length > 0);
+			this.renderAppearanceRules(results, available.filter(entry => entry.search.includes(query)).map(entry => entry.path), renderResults, cards);
+			this.renderHiddenPaths(results, next.hidden.filter(entry => entry.search.includes(query)).map(entry => entry.path), renderResults);
 		};
-		search.addEventListener('input', renderResults);
+		const searchChanged = (): void => { this.pathPages.clear(); renderResults(); };
+		search.addEventListener('input', searchChanged);
 		renderResults();
 		return () => {
-			search.removeEventListener('input', renderResults);
+			search.removeEventListener('input', searchChanged);
+			cards.clear();
 			wrapper.remove();
 		};
 	}
 
 	/** Lists rules whose item was moved or deleted outside Obsidian. */
-	private renderMissingRules(container: HTMLElement, missing: readonly MissingRoot[]): void {
-		if (missing.length === 0) return;
-		const shown = missing.filter((root) => this.matches(root.path));
+	private renderMissingRules(container: HTMLElement, shown: readonly MissingRoot[], refresh: () => void, hasMissing: boolean): void {
+		if (shown.length === 0 && !hasMissing) return;
 		const section = this.ruleSection(container, 'Missing items', shown.length);
 		section.addClass('ft-rule-section--missing');
 		section.createDiv({ text: MISSING_ITEMS_HINT, cls: 'ft-card-hint' });
 		if (shown.length === 0) this.emptyState(section, 'No missing items match this search.');
-		else renderMissingItemCards(section, this.toolkit, shown, () => this.update());
+		else renderMissingItemCards(section, this.toolkit, this.pathPage(section, 'Missing items', shown, refresh), () => this.update());
 	}
 
-	private renderAppearanceRules(container: HTMLElement, missing: readonly MissingRoot[]): void {
-		const isMissing = (path: string): boolean => missing.some((root) => path === root.path || path.startsWith(`${root.path}/`));
-		const paths = Object.keys(this.toolkit.settings.appearanceRules).filter((path) => this.matches(path) && !isMissing(path)).sort();
+	private renderAppearanceRules(container: HTMLElement, paths: string[], refresh: () => void, cards: Map<string, HTMLElement>): void {
 		const section = this.ruleSection(container, 'Appearance rules', paths.length);
 		if (paths.length === 0) {
+			cards.clear();
 			this.emptyState(section, this.search ? 'No appearance rules match this search.' : 'No appearance rules yet. Right-click a file or folder and choose Edit appearance.');
 			return;
 		}
-		for (const path of paths) this.renderAppearanceCard(section, path, this.toolkit.settings.appearanceRules[path]);
+		const shown = this.pathPage(section, 'Appearance rules', paths, refresh);
+		const keep = new Set(shown);
+		for (const key of cards.keys()) if (!keep.has(key)) cards.delete(key);
+		for (const path of shown) {
+			let card = cards.get(path);
+			if (!card) { card = this.renderAppearanceCard(section, path, this.toolkit.settings.appearanceRules[path]); cards.set(path, card); }
+			else section.append(card);
+		}
 	}
 
-	private renderAppearanceCard(container: HTMLElement, path: string, rule: AppearanceRule): void {
+	private pathPage<T>(section: HTMLElement, key: string, items: readonly T[], refresh: () => void): readonly T[] {
+		const size = 100, finalPage = Math.max(0, Math.ceil(items.length / size) - 1);
+		const page = Math.min(this.pathPages.get(key) ?? 0, finalPage); this.pathPages.set(key, page);
+		if (items.length > size) {
+			const controls = section.createDiv('ft-managed-pagination');
+			controls.createSpan({ text: `Showing ${page * size + 1}–${Math.min((page + 1) * size, items.length)} of ${items.length}.`, attr: { role: 'status' } });
+			const previous = controls.createEl('button', { text: 'Previous', attr: { type: 'button', 'aria-label': `Previous ${key.toLocaleLowerCase()}` } });
+			const container = section.parentElement;
+			const focusPage = (label: string): void => {
+				const requested = container?.querySelector<HTMLButtonElement>(`button[aria-label="${label} ${key.toLocaleLowerCase()}"]`);
+				const alternative = container?.querySelector<HTMLButtonElement>(`button[aria-label="${label === 'Next' ? 'Previous' : 'Next'} ${key.toLocaleLowerCase()}"]`);
+				(requested?.disabled ? alternative : requested)?.focus();
+			};
+			previous.disabled = page === 0; previous.addEventListener('click', () => { this.pathPages.set(key, page - 1); refresh(); focusPage('Previous'); });
+			const next = controls.createEl('button', { text: 'Next', attr: { type: 'button', 'aria-label': `Next ${key.toLocaleLowerCase()}` } });
+			next.disabled = page === finalPage; next.addEventListener('click', () => { this.pathPages.set(key, page + 1); refresh(); focusPage('Next'); });
+		}
+		return items.slice(page * size, (page + 1) * size);
+	}
+
+	private renderAppearanceCard(container: HTMLElement, path: string, rule: AppearanceRule): HTMLElement {
 		const card = container.createDiv('ft-rule-card');
 		const identity = card.createDiv('ft-rule-card__identity');
 		const { name, parent } = this.splitPath(path);
@@ -603,7 +649,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		this.renderEffectPreview(previews, 'Background', rule.background?.choice);
 		if (rule.border && 'kind' in rule.border) this.renderEffectPreview(previews, 'Border', { kind: 'none' });
 		else this.renderEffectPreview(previews, 'Border', rule.border?.color);
-		const textStyles = [rule.text?.bold ? 'Bold' : null, rule.text?.strikethrough ? 'Strikethrough' : null].filter((style): style is string => style !== null);
+		const textStyles = rule.text?.inheritTypography ? ['Inherited typography'] : [rule.text?.bold ? 'Bold' : null, rule.text?.strikethrough ? 'Strikethrough' : null].filter((style): style is string => style !== null);
 		if (textStyles.length > 0) previews.createDiv({ text: `Text style: ${textStyles.join(' · ')}`, cls: 'ft-rule-preview' });
 
 		const actions = card.createDiv('ft-rule-card__actions');
@@ -617,16 +663,16 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				this.update();
 			}).open();
 		});
+		return card;
 	}
 
-	private renderHiddenPaths(container: HTMLElement): void {
-		const paths = this.toolkit.settings.hiddenPaths.filter((path) => this.matches(path)).sort();
+	private renderHiddenPaths(container: HTMLElement, paths: string[], refresh: () => void): void {
 		const section = this.ruleSection(container, 'Hidden items', paths.length);
 		if (paths.length === 0) {
 			this.emptyState(section, this.search ? 'No hidden items match this search.' : 'No hidden items. Right-click a file or folder and choose Hide.');
 			return;
 		}
-		for (const path of paths) {
+		for (const path of this.pathPage(section, 'Hidden items', paths, refresh)) {
 			const card = section.createDiv('ft-rule-card ft-rule-card--hidden');
 			const { name, parent } = this.splitPath(path);
 			const identity = card.createDiv('ft-rule-card__identity');
@@ -667,9 +713,6 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		return { name: parts.pop() ?? path, parent: parts.join('/') || 'Vault root' };
 	}
 
-	private matches(path: string): boolean {
-		return path.toLocaleLowerCase().includes(this.search.trim().toLocaleLowerCase());
-	}
 }
 
 function openExternalLink(url: string): void {

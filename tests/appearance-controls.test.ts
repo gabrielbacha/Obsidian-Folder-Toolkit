@@ -1,30 +1,8 @@
+import { installDomHelpers } from "./dom-helpers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppearanceControlRenderer } from "../src/ui/appearance-controls";
 import type FolderToolkitPlugin from "../src/main";
 
-function installDomHelpers(): void {
-	HTMLElement.prototype.createDiv = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) {
-		return this.createEl("div", options);
-	};
-	HTMLElement.prototype.createSpan = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) {
-		return this.createEl("span", options);
-	};
-	HTMLElement.prototype.createEl = function <K extends keyof HTMLElementTagNameMap>(tag: K, options?: string | { text?: string; cls?: string; attr?: Record<string, string>; type?: string; value?: string; placeholder?: string }) {
-		const element = document.createElement(tag);
-		if (typeof options === "string") element.className = options;
-		else if (options) {
-			if (options.text !== undefined) element.textContent = options.text;
-			if (options.cls) element.className = options.cls;
-			if (options.type) element.setAttribute("type", options.type);
-			if (options.value) (element as HTMLInputElement).value = options.value;
-			if (options.placeholder) (element as HTMLInputElement).placeholder = options.placeholder;
-			for (const [name, value] of Object.entries(options.attr ?? {})) element.setAttribute(name, value);
-		}
-		this.append(element);
-		return element;
-	};
-	HTMLElement.prototype.addClass = function (...classes: string[]) { this.classList.add(...classes); };
-}
 
 function toolkit(): FolderToolkitPlugin {
 	return { settings: { paletteTemplateId: "default" } } as FolderToolkitPlugin;
@@ -63,7 +41,10 @@ describe("AppearanceControlRenderer", () => {
 		const field = host.querySelector<HTMLInputElement>("input[type=text]")!;
 		field.value = "nope";
 		field.dispatchEvent(new Event("input"));
-		expect(field.hasAttribute("aria-invalid")).toBe(true);
+		expect(field.getAttribute("aria-invalid")).toBe("true");
+		const errorId = field.getAttribute("aria-describedby");
+		expect(errorId).toBeTruthy();
+		expect(host.querySelector(`[id="${errorId}"]`)?.textContent).toContain("hex color");
 		expect(host.querySelector(".ft-field-error")?.classList.contains("is-visible")).toBe(true);
 		controls.dispose();
 	});
@@ -87,4 +68,20 @@ describe("AppearanceControlRenderer", () => {
 		expect(onSelect).toHaveBeenLastCalledWith({ kind: "custom", hex: "#123456", strength: 50 }, false);
 	});
 
+});
+
+it("keeps the current slider strength when a later color is selected", () => {
+	installDomHelpers(); const host = document.createElement("div"); const onSelect = vi.fn();
+	new AppearanceControlRenderer(toolkit()).renderColorControls(host, { selected: { kind: "preset", slot: 0 }, defaultStrength: 12, includeWhite: true, onSelect });
+	const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!; slider.value = "74"; slider.dispatchEvent(new Event("input"));
+	expect(host.querySelector<HTMLButtonElement>('.ft-color-strength__reset')!.disabled).toBe(false);
+	host.querySelector<HTMLButtonElement>('button[aria-label="White"]')!.click();
+	expect(onSelect.mock.calls.at(-1)![0]).toEqual({ kind: "custom", hex: "#FFFFFF", strength: 74 });
+});
+it("Escape closes the picker, restores focus, and cannot close its parent modal", () => {
+	installDomHelpers(); const host = document.createElement("div"); document.body.append(host); const parent = vi.fn(); host.addEventListener("keydown", parent);
+	new AppearanceControlRenderer(toolkit()).renderColorControls(host, { selected: { kind: "custom", hex: "#ABCDEF" }, defaultStrength: 100, onSelect: vi.fn() });
+	const trigger = host.querySelector<HTMLButtonElement>('.ft-custom-trigger')!; trigger.click();
+	host.querySelector<HTMLInputElement>('input[type=text]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	expect(parent).not.toHaveBeenCalled(); expect(document.activeElement).toBe(trigger);
 });

@@ -29,6 +29,15 @@ class MemoryFiles implements VaultFiles {
 		this.files.set(path, { data, mtime: this.clock += 1 });
 		return Promise.resolve();
 	}
+	copy(source: string, target: string): Promise<void> {
+		if (this.files.has(target)) return Promise.reject(new Error('EEXIST'));
+		this.files.set(target, { ...this.files.get(source)! }); return Promise.resolve();
+	}
+	process(path: string, edit: (data: string) => string): Promise<string> {
+		const result = edit(this.files.get(path)?.data ?? '');
+		this.files.set(path, { data: result, mtime: this.clock += 1 });
+		return Promise.resolve(result);
+	}
 	stat(path: string): Promise<{ mtime: number } | null> {
 		const file = this.files.get(path);
 		return Promise.resolve(file ? { mtime: file.mtime } : null);
@@ -186,6 +195,8 @@ describe('rename inside a nested vault', () => {
 			const plugin = Object.create(FolderToolkitPlugin.prototype) as FolderToolkitPlugin;
 			Object.assign(plugin, {
 				settings: settings(),
+				app: { vault: { configDir: '_config', adapter: files } },
+				manifest: { id: 'folder-toolkit' },
 				nested,
 				appearancePreview: new AppearancePreviewStore(),
 				explorer: { reconcileSoon: vi.fn() },
@@ -195,12 +206,69 @@ describe('rename inside a nested vault', () => {
 			await rename.handleRename({ path: 'Vaults/Inner/New' }, 'Vaults/Inner/Old');
 			expect(Object.keys(files.json(DATA).appearanceRules as object).sort()).toEqual(['New', 'New/Sub']);
 
-			// The nested window saves its stale copy again; the second check restores the moved rules.
+			// A later external change must not trigger a stale captured rename replay.
 			await files.write(DATA, JSON.stringify({ appearanceRules: {} }));
 			await vi.advanceTimersByTimeAsync(2500);
-			expect(Object.keys(files.json(DATA).appearanceRules as object).sort()).toEqual(['New', 'New/Sub']);
+			expect(Object.keys(files.json(DATA).appearanceRules as object)).toEqual([]);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
+});
+
+describe('nested move and load failure boundaries', () => {
+	const rule = { text: { bold: true, strikethrough: false, cascade: false } };
+	function pluginFor(files: MemoryFiles, nested: NestedVaultStore) {
+		return Object.assign(Object.create(FolderToolkitPlugin.prototype), { settings: settings(), app: { vault: { configDir: '_config', adapter: files } }, manifest: { id: 'folder-toolkit' }, nested, appearancePreview: new AppearancePreviewStore(), explorer: { reconcileSoon: vi.fn(), stop: vi.fn() }, tabs: { reconcileSoon: vi.fn(), stop: vi.fn() } }) as unknown as { handleRename(file: { path: string }, oldPath: string): Promise<void>; onunload(): void };
+	}
+	it('retains source rules and the move request when destination publication fails', async () => {
+		const other = 'Vaults/Other/_config/plugins/folder-toolkit/data.json'; const files = new MemoryFiles();
+		await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { Old: rule }, conditionalFormats: [] })); await files.write(other, JSON.stringify({ schemaVersion: 6, appearanceRules: {}, conditionalFormats: [] }));
+		const nested = new NestedVaultStore(files, '_config', 'folder-toolkit', () => {}); await nested.ownerOf('Vaults/Inner/Old'); await nested.ownerOf('Vaults/Other/New');
+		const process = files.process.bind(files); files.process = (path, edit) => path === other ? Promise.reject(new Error('destination full')) : process(path, edit);
+		const warning = vi.spyOn(console, 'error').mockImplementation(() => {});
+		await pluginFor(files, nested).handleRename({ path: 'Vaults/Other/New' }, 'Vaults/Inner/Old');
+		expect((files.json(DATA).appearanceRules as Record<string, unknown>).Old).toEqual(rule);
+		expect([...files.files].find(([path]) => path.includes('/move-'))?.[1].data).toContain('prepared'); warning.mockRestore();
+	});
+	it('orders A-to-B-to-C, undo, and reused old paths without a captured replay', async () => {
+		const files = new MemoryFiles(); await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { A: rule }, conditionalFormats: [] }));
+		const nested = new NestedVaultStore(files, '_config', 'folder-toolkit', () => {}); await nested.ownerOf('Vaults/Inner/A'); const plugin = pluginFor(files, nested);
+		await Promise.all([plugin.handleRename({ path: 'Vaults/Inner/B' }, 'Vaults/Inner/A'), plugin.handleRename({ path: 'Vaults/Inner/C' }, 'Vaults/Inner/B')]);
+		expect(Object.keys(files.json(DATA).appearanceRules as object)).toEqual(['C']);
+		await plugin.handleRename({ path: 'Vaults/Inner/A' }, 'Vaults/Inner/C');
+		await nested.writeRule('Vaults/Inner', 'B', { text: { bold: false, strikethrough: true, cascade: false } }); plugin.onunload();
+		expect(Object.keys(files.json(DATA).appearanceRules as object).sort()).toEqual(['A', 'B']);
+	});
+	it('refreshes a cached negative probe after a nested vault is created', async () => {
+		const files = new MemoryFiles(); const nested = new NestedVaultStore(files, '_config', 'folder-toolkit', () => {}); nested.probe(['Vaults/Inner']); await settle();
+		expect(nested.isKnownVaultRoot('Vaults/Inner')).toBe(false); await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { Added: rule }, conditionalFormats: [] })); await nested.refresh();
+		expect(nested.layer('Vaults/Inner')?.appearanceRules.Added).toEqual(rule);
+	});
+	it('recovers a transient configuration access failure on refresh', async () => {
+		const files = new MemoryFiles(); await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { Kept: rule }, conditionalFormats: [] }));
+		const exists = files.exists.bind(files); let fail = true;
+		files.exists = path => path === 'Vaults/Inner/_config' && fail ? Promise.reject(new Error('temporary access failure')) : exists(path);
+		const nested = new NestedVaultStore(files, '_config', 'folder-toolkit', () => {});
+		nested.probe(['Vaults/Inner']); await settle(); expect(nested.isKnownVaultRoot('Vaults/Inner')).toBe(false);
+		fail = false; await nested.refresh(); expect(nested.layer('Vaults/Inner')?.appearanceRules.Kept).toEqual(rule);
+	});
+	it('does not repopulate a forgotten or disposed root from a late probe', async () => {
+		const files = new MemoryFiles(); let release!: (value: boolean) => void; files.exists = () => new Promise(resolve => { release = resolve; });
+		const onChange = vi.fn(); const nested = new NestedVaultStore(files, '_config', 'folder-toolkit', onChange); nested.probe(['Late']); nested.forget('Late'); nested.dispose(); release(true); await Promise.resolve(); await Promise.resolve();
+		expect(nested.isKnownVaultRoot('Late')).toBe(false); expect(onChange).not.toHaveBeenCalled();
+	});
+});
+
+it('retains the latest layer when an earlier refresh read resolves late', async () => {
+	const files = new MemoryFiles(); const rule = { text: { bold: true, strikethrough: false, cascade: false } };
+	await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { Initial: rule }, conditionalFormats: [] }));
+	const nested = new NestedVaultStore(files, '_config', 'folder-toolkit', () => {}); await nested.ownerOf('Vaults/Inner/Initial');
+	await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { Earlier: rule }, conditionalFormats: [] }));
+	const read = files.read.bind(files); let release!: () => void; let started!: () => void; let held = false;
+	const start = new Promise<void>(resolve => { started = resolve; }); const barrier = new Promise<void>(resolve => { release = resolve; });
+	files.read = async path => { const text = await read(path); if (path === DATA && !held) { held = true; started(); await barrier; } return text; };
+	const earlier = nested.refresh(); await start;
+	await files.write(DATA, JSON.stringify({ schemaVersion: 6, appearanceRules: { Latest: rule }, conditionalFormats: [] })); await nested.refresh(); release(); await earlier;
+	expect(Object.keys(nested.layer('Vaults/Inner')!.appearanceRules)).toEqual(['Latest']);
 });

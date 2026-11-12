@@ -1,3 +1,4 @@
+import { appearancePresentation } from '../appearance-presentation';
 import { setIcon } from 'obsidian';
 import { resolveAppearance } from '../appearance-resolver';
 import type { AppearanceRule, FolderToolkitSettings } from '../types';
@@ -99,18 +100,19 @@ export function buildPreviewTree(container: HTMLElement, path: string, isFolder:
 
 /** Applies `rule` to `path` on top of the saved settings and paints every sample row. */
 export function stylePreviewTree(tree: PreviewTree, baseSettings: FolderToolkitSettings, path: string, rule: AppearanceRule): void {
-	const appearanceRules = { ...baseSettings.appearanceRules };
-	if (Object.keys(rule).length === 0) delete appearanceRules[path];
-	else appearanceRules[path] = structuredClone(rule);
+	// Read-only overlay: one draft shadows a shared rule index without cloning the full vault map.
+	const appearanceRules = Object.create(baseSettings.appearanceRules) as Record<string, AppearanceRule>;
+	Object.defineProperty(appearanceRules, path, { value: rule, enumerable: true, configurable: true });
 	const settings = { ...baseSettings, appearanceRules };
 	const getDescendantIndex = (candidate: string) => Math.max(0, tree.subfolderOrder.indexOf(candidate));
 
 	for (const { path: rowPath, el, titleEl, isFolder, relation } of tree.rows) {
 		const appearance = resolveAppearance(rowPath, { settings, getDescendantIndex, isFolder });
-		const directBackground = appearanceRules[rowPath]?.background;
-		const directHasColor = directBackground !== undefined && directBackground.choice.kind !== 'none';
-		const directBlocks = directBackground?.choice.kind === 'none';
-		const directCascades = isFolder && directBackground?.cascade === true;
+		const presentation = appearancePresentation(appearance, isFolder);
+		const directBackground = appearance.directBackground;
+		const directHasColor = presentation.directColor;
+		const directBlocks = presentation.blocked;
+		const directCascades = presentation.cascade;
 		titleEl.classList.toggle('ft-preview-has-text', appearance.text !== null);
 		titleEl.classList.toggle('ft-preview-is-bold', appearance.bold);
 		titleEl.classList.toggle('ft-preview-is-strikethrough', appearance.strikethrough);
@@ -125,7 +127,7 @@ export function stylePreviewTree(tree: PreviewTree, baseSettings: FolderToolkitS
 		const border = appearance.border;
 		el.classList.toggle('ft-preview-border-box', border?.style === 'box');
 		el.classList.toggle('ft-preview-border-rail', border?.style === 'rail');
-		el.classList.toggle('ft-preview-border-shaded', border?.shading === true);
+		el.classList.toggle('ft-preview-border-shaded', presentation.shaded);
 
 		for (const property of PREVIEW_STYLE_PROPERTIES) {
 			el.style.removeProperty(property);
@@ -148,10 +150,7 @@ export function stylePreviewTree(tree: PreviewTree, baseSettings: FolderToolkitS
 		if (border) {
 			el.style.setProperty('--ft-preview-border', border.color.hex);
 			if (border.color.strength !== undefined) el.style.setProperty('--ft-preview-border-strength', `${border.color.strength}%`);
-			const thicknessMap = border.style === 'box'
-				? { thin: '1px', medium: '2px', thick: '3px' }
-				: { thin: '2px', medium: '4px', thick: '6px' };
-			el.style.setProperty('--ft-preview-border-width', thicknessMap[border.thickness ?? 'thin']);
+			el.style.setProperty('--ft-preview-border-width', presentation.borderWidth);
 		}
 	}
 }

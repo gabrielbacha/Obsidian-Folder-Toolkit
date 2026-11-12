@@ -1,32 +1,10 @@
+import { installDomHelpers } from "./dom-helpers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TFolder } from "obsidian";
 import type FolderToolkitPlugin from "../src/main";
 import type { AppearanceRule, FolderToolkitSettings } from "../src/types";
 import { AppearanceModal, type AppearanceTarget } from "../src/ui/appearance-modal";
 
-function installDomHelpers(): void {
-	HTMLElement.prototype.createDiv = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) { return this.createEl("div", options); };
-	HTMLElement.prototype.createSpan = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) { return this.createEl("span", options); };
-	HTMLElement.prototype.createEl = function <K extends keyof HTMLElementTagNameMap>(tag: K, options?: string | { text?: string; cls?: string; attr?: Record<string, string>; type?: string; value?: string; placeholder?: string }) {
-		const element = document.createElement(tag);
-		if (typeof options === "string") element.className = options;
-		else if (options) {
-			if (options.text !== undefined) element.textContent = options.text;
-			if (options.cls) element.className = options.cls;
-			if (options.type) element.setAttribute("type", options.type);
-			if (options.value !== undefined) (element as HTMLInputElement).value = options.value;
-			if (options.placeholder) (element as HTMLInputElement).placeholder = options.placeholder;
-			for (const [name, value] of Object.entries(options.attr ?? {})) element.setAttribute(name, value);
-		}
-		this.append(element);
-		return element;
-	};
-	HTMLElement.prototype.addClass = function (...classes: string[]) { this.classList.add(...classes); };
-	HTMLElement.prototype.removeClass = function (...classes: string[]) { this.classList.remove(...classes); };
-	HTMLElement.prototype.empty = function () { this.replaceChildren(); };
-	HTMLElement.prototype.hide = function () { this.hidden = true; };
-	HTMLElement.prototype.setText = function (text: string) { this.textContent = text; };
-}
 
 function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appearanceRules"] = {}, siblingPaths: string[] = [], target?: AppearanceTarget) {
 	const settings: FolderToolkitSettings = {
@@ -57,7 +35,7 @@ function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appear
 	const modal = new AppearanceModal(toolkit, folder ? "Folder" : "note.md", undefined, target);
 	modal.onOpen();
 	const latestDraft = (): AppearanceRule => previewAppearance.mock.calls.at(-1)?.[1] as AppearanceRule;
-	return { modal, latestDraft, setAppearance, previewAppearance };
+	return { toolkit, currentFolder, modal, latestDraft, setAppearance, previewAppearance };
 }
 
 describe("AppearanceModal immediate controls", () => {
@@ -270,4 +248,108 @@ describe("AppearanceModal for a nested vault", () => {
 		expect(setAppearance).toHaveBeenCalledWith("Folder", stored, owner);
 		expect(previewAppearance).toHaveBeenLastCalledWith("Folder", stored, "ember");
 	});
+});
+
+describe("appearance save and focus ownership", () => {
+	beforeEach(() => { document.body.replaceChildren(); installDomHelpers(); });
+	it("retains newer edits and disables every rebuilt Save while an earlier draft is publishing", async () => {
+		const h = harness(true); document.body.append(h.modal.contentEl);
+		let complete!: () => void; h.setAppearance.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
+		const close = vi.spyOn(h.modal, "close");
+		h.modal.contentEl.querySelector<HTMLButtonElement>(".ft-modal-footer .mod-cta")!.click();
+		await Promise.resolve();
+		h.modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Bold"]')!.click();
+		expect(h.modal.contentEl.querySelector<HTMLButtonElement>(".ft-modal-footer .mod-cta")!.disabled).toBe(true);
+		expect(h.setAppearance).toHaveBeenCalledWith("Folder", {});
+		complete(); await Promise.resolve(); await Promise.resolve();
+		expect(close).not.toHaveBeenCalled(); expect(h.latestDraft().text?.bold).toBe(true);
+		expect(h.modal.contentEl.querySelector<HTMLButtonElement>(".ft-modal-footer .mod-cta")!.disabled).toBe(false);
+	});
+	it("rejects a save after the original folder was renamed", async () => {
+		const h = harness(true); h.currentFolder.path = "Moved";
+		h.modal.contentEl.querySelector<HTMLButtonElement>(".ft-modal-footer .mod-cta")!.click(); await Promise.resolve();
+		expect(h.setAppearance).not.toHaveBeenCalled(); expect(h.modal.contentEl.textContent).toContain("Reopen");
+	});
+	it('keeps the complete copied rule and descendant request after a failed save', async () => {
+		const own: AppearanceRule = { text: { bold: true, strikethrough: true, cascade: true }, background: { choice: { kind: 'custom', hex: '#123456', strength: 44 }, cascade: true }, descendants: { enabled: true, style: 'rail', thickness: 'thick', shading: true } };
+		const child: AppearanceRule = { text: { bold: false, strikethrough: false, cascade: false } };
+		const h = harness(true); const close = vi.spyOn(h.modal, 'close');
+		const pasteDescendantAppearance = vi.fn().mockRejectedValueOnce(new Error('descendant write failed')).mockResolvedValue({ saved: 1, skipped: 0 });
+		Object.assign(h.toolkit, { readCopiedAppearance: vi.fn().mockResolvedValue({ '.': own, 'Child.md': child }), pasteDescendantAppearance });
+		h.modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Paste appearance"]')!.click();
+		await Promise.resolve(); await Promise.resolve(); expect(h.latestDraft()).toEqual(own);
+		h.modal.contentEl.querySelector<HTMLButtonElement>('.ft-modal-footer .mod-cta')!.click();
+		await vi.waitFor(() => expect(h.modal.contentEl.textContent).toContain('descendant write failed'));
+		expect(close).not.toHaveBeenCalled(); expect(h.latestDraft()).toEqual(own);
+		expect(pasteDescendantAppearance).toHaveBeenLastCalledWith('Folder', { 'Child.md': child });
+		h.modal.contentEl.querySelector<HTMLButtonElement>('.ft-modal-footer .mod-cta')!.click();
+		await vi.waitFor(() => expect(close).toHaveBeenCalled());
+		expect(pasteDescendantAppearance).toHaveBeenNthCalledWith(2, 'Folder', { 'Child.md': child });
+		expect(h.setAppearance).toHaveBeenLastCalledWith('Folder', own);
+	});
+	it("keeps logical keyboard focus after a full control rebuild and retains preset DOM", () => {
+		const h = harness(true); document.body.append(h.modal.contentEl);
+		const preset = h.modal.contentEl.querySelector(".ft-appearance-preset");
+		const bold = h.modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Bold"]')!; bold.focus(); bold.click();
+		expect(document.activeElement?.getAttribute("aria-label")).toBe("Bold");
+		expect(h.modal.contentEl.querySelector(".ft-appearance-preset")).toBe(preset);
+	});
+	it("shows inherited typography and saves an explicit false when it is turned off", () => {
+		const h = harness(true, { Parent: { text: { bold: true, strikethrough: true, cascade: true } } });
+		// This fixture folder is not under Parent; exercise its real controlling path through the saved direct rule.
+		h.toolkit.settings.appearanceRules.Folder = { text: { bold: true, strikethrough: true, cascade: false } };
+		h.modal.close();
+		const modal = new AppearanceModal(h.toolkit, "Folder"); modal.onOpen();
+		modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Bold"]')!.click();
+		modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Strikethrough"]')!.click();
+		const draft = h.previewAppearance.mock.calls.at(-1)![1] as AppearanceRule;
+		expect(draft.text?.bold).toBe(false); expect(draft.text?.strikethrough).toBe(false);
+	});
+});
+
+it("uses a local disposal field without overriding the native Modal closed flag", () => {
+	installDomHelpers(); const h = harness(true); h.modal.close();
+	const modal = new AppearanceModal(h.toolkit, "Folder"); modal.open();
+	expect(modal.contentEl.classList.contains("ft-appearance-modal")).toBe(true);
+});
+
+
+it('returns typography to inheritance without removing direct color or other effects', () => {
+	installDomHelpers();
+	const h = harness(true, { Folder: { text: { color: { kind: 'custom', hex: '#123456' }, bold: true, strikethrough: true, cascade: false }, background: { choice: { kind: 'preset', slot: 2 }, cascade: true } } });
+	[...h.modal.contentEl.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Use inherited typography')!.click();
+	const draft = h.latestDraft();
+	expect(draft.text?.color).toEqual({ kind: 'custom', hex: '#123456' });
+	expect(draft.text?.inheritTypography).toBe(true); expect(draft.background?.choice).toEqual({ kind: 'preset', slot: 2 });
+	h.modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Bold"]')!.click();
+	expect(h.latestDraft().text?.inheritTypography).toBeUndefined();
+});
+
+
+it('keeps typography inherited when adding only a direct text color', () => {
+	installDomHelpers(); const h = harness(true);
+	h.modal.contentEl.querySelector<HTMLButtonElement>('.ft-color-card--text .ft-swatch')!.click();
+	expect(h.latestDraft().text?.color?.kind).toBe('preset');
+	expect(h.latestDraft().text?.inheritTypography).toBe(true);
+});
+
+
+it('does not restore a closed editor or its preview from a late clipboard paste', async () => {
+	installDomHelpers(); const h = harness(true); let release!: (value: unknown) => void;
+	Object.assign(h.toolkit, { readCopiedAppearance: () => new Promise(resolve => { release = resolve; }) });
+	h.modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Paste appearance"]')!.click();
+	h.modal.close(); const count = h.previewAppearance.mock.calls.length;
+	release({ '.': { text: { bold: true, strikethrough: false, cascade: false } } }); await Promise.resolve(); await Promise.resolve();
+	expect(h.modal.contentEl.childElementCount).toBe(0); expect(h.previewAppearance.mock.calls).toHaveLength(count);
+});
+
+
+it('accepts an unchanged controlling rule after its JSON keys are reordered', async () => {
+	installDomHelpers(); const original = { text: { bold: true, strikethrough: false, cascade: false } };
+	const h = harness(true, { Folder: original });
+	Object.assign(h.toolkit, { appearanceTarget: async () => ({ owner: { relativePath: 'Folder', root: null }, paletteTemplateId: 'default', rule: { text: { cascade: false, strikethrough: false, bold: true } } }) });
+	h.modal.contentEl.querySelector<HTMLButtonElement>('button[aria-label="Strikethrough"]')!.click();
+	[...h.modal.contentEl.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Save')!.click();
+	await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+	expect(h.setAppearance).toHaveBeenCalledOnce();
 });

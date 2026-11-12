@@ -26,6 +26,11 @@ export default defineConfig([
 			"obsidianmd/rule-custom-message": "off",
 		},
 	},
+	{
+		// Node fixture scripts own a deliberately fixed configDir and do not run in a popout window.
+		files: ["tests/**/*.mjs"],
+		rules: { "obsidianmd/hardcoded-config-path": "off", "obsidianmd/prefer-window-timers": "off" },
+	},
 	{ files: ["vitest.config.ts"], rules: { "obsidianmd/no-nodejs-modules": "off" } },
 	{ files: ["tests/**/*.ts"], rules: { "obsidianmd/prefer-create-el": "off" } },
 ]);

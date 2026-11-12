@@ -18,8 +18,12 @@ export function replacePathRoot(path: string, oldRoot: string, newRoot: string):
 }
 
 export function findNearestContainingPath(path: string, candidates: readonly string[]): string | null {
-	return candidates
-		.filter((candidate) => isSameOrDescendant(path, candidate))
-		.sort((first, second) => second.length - first.length)[0] ?? null;
+	let nearest: string | null = null;
+	for (const candidate of candidates) if (isSameOrDescendant(path, candidate) && (!nearest || candidate.length > nearest.length)) nearest = candidate;
+	return nearest;
 }
 
+export function containingPathIndex(paths: readonly string[]): (path: string) => string | null {
+	const roots = new Set(paths);
+	return (path) => [path, ...parentPaths(path)].find((candidate) => roots.has(candidate)) ?? null;
+}

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -19,6 +19,8 @@ export interface EffectRule {
 
 export interface TextAppearanceRule {
 	color?: ColorChoice;
+	/** Keep direct color while resolving typography from the normal inherited sources. */
+	inheritTypography?: boolean;
 	bold: boolean;
 	strikethrough: boolean;
 	cascade: boolean;

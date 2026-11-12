@@ -76,3 +76,18 @@ export function conditionalStylesFor(
 	}
 	return matched;
 }
+
+/** Match the rule list once; each enabled channel keeps its existing last-match policy. */
+export function conditionalAppearanceFor(path: string, isFolder: boolean, settings: FolderToolkitSettings): {
+	text?: EffectRule; background?: EffectRule; border?: BorderRule; styles?: { bold: boolean; strikethrough: boolean };
+} {
+	const result: { text?: EffectRule; background?: EffectRule; border?: BorderRule; styles?: { bold: boolean; strikethrough: boolean } } = {};
+	for (const rule of settings.conditionalFormats) {
+		if (!matchesConditionalFormat(path, isFolder, rule)) continue;
+		if (isFontEnabled(rule)) result.text = { choice: rule.color, cascade: false };
+		if (isBackgroundEnabled(rule)) result.background = { choice: rule.backgroundColor ?? rule.color, cascade: false };
+		if (isBorderEnabled(rule)) result.border = rule.border;
+		result.styles = { bold: rule.bold === true, strikethrough: rule.strikethrough === true };
+	}
+	return result;
+}

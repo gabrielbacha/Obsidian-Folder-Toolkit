@@ -1,5 +1,7 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as resolver from '../src/appearance-resolver';
+import { DEFAULT_SETTINGS } from '../src/types';
 import { ExplorerManager } from '../src/explorer-manager';
 import { AppearancePreviewStore } from '../src/appearance-preview';
 import type { FolderToolkitSettings } from '../src/types';
@@ -242,14 +244,17 @@ describe('ExplorerManager', () => {
 	});
 
 	it('reconciles rows inserted after startup', async () => {
+		vi.useFakeTimers();
 		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
 		manager.start();
 		const container = root.querySelector('.nav-files-container')!;
 		container.append(file('A/new.md'));
-		await new Promise((resolve) => window.setTimeout(resolve, 10));
+		await Promise.resolve();
+		await vi.runAllTimersAsync();
 		const row = root.querySelector<HTMLElement>('[data-path="A/new.md"]')!.parentElement!;
 		expect(row.hasClass('ft-has-text')).toBe(true);
 		manager.stop();
+		vi.useRealTimers();
 	});
 
 	it('applies transient cascaded drafts and restores saved appearance when cleared', () => {
@@ -369,4 +374,17 @@ describe('ExplorerManager', () => {
 		manager.stop();
 	});
 
+});
+
+
+it('resolves each row once and reads each sibling group once per reconciliation', () => {
+	vi.stubGlobal('requestAnimationFrame', () => 1); vi.stubGlobal('cancelAnimationFrame', () => {});
+	const root = document.createElement('div'), container = document.createElement('div'); container.className = 'nav-files-container';
+	container.append(folder('A'), folder('B'), folder('C')); root.append(container); document.body.append(root);
+	const children = container.children; let siblingReads = 0;
+	Object.defineProperty(container, 'children', { configurable: true, get: () => { siblingReads += 1; return children; } });
+	const resolve = vi.spyOn(resolver, 'resolveAppearance');
+	const manager = new ExplorerManager(mockApp(root), () => DEFAULT_SETTINGS, () => null);
+	try { manager.start(); manager.reconcile(); expect(resolve).toHaveBeenCalledTimes(3); expect(siblingReads).toBe(1); }
+	finally { manager.stop(); resolve.mockRestore(); root.remove(); vi.unstubAllGlobals(); }
 });

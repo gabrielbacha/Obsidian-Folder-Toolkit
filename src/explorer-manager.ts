@@ -1,8 +1,9 @@
+import { appearancePresentation } from './appearance-presentation';
 import type { App } from 'obsidian';
 import { hasDirectAppearance, resolveAppearance } from './appearance-resolver';
-import { conditionalEffectFor } from './conditional-format';
+import { containingPathIndex } from './path-utils';
 import { syncClass, syncStyle } from './dom-sync';
-import { focusRelation, hiddenBy } from './visibility';
+import { focusRelation } from './visibility';
 import type { FolderToolkitSettings } from './types';
 
 const MANAGED_CLASSES = [
@@ -77,6 +78,7 @@ export class ExplorerManager {
 	reconcile(): void {
 		const settings = this.getSettings();
 		const focusPath = this.getFocusPath();
+		const hidden = containingPathIndex(settings.hiddenPaths);
 		for (const root of this.observers.keys()) {
 			const rows = new Map<HTMLElement, string>();
 			for (const pathElement of root.querySelectorAll<HTMLElement>('[data-path]')) {
@@ -84,7 +86,13 @@ export class ExplorerManager {
 				const row = pathElement.closest('.nav-folder, .nav-file');
 				if (path && row && isHtmlElement(row)) rows.set(row, path);
 			}
-			for (const [row, path] of rows) this.applyRow(row, path, settings, focusPath);
+			const indices = new Map<HTMLElement, number>();
+			const parents = new Set([...rows.keys()].map((row) => row.parentElement));
+			for (const parent of parents) {
+				let index = 0;
+				for (const child of parent?.children ?? []) if (isHtmlElement(child) && child.classList.contains('nav-folder')) indices.set(child, index++);
+			}
+			for (const [row, path] of rows) this.applyRow(row, path, settings, focusPath, indices.get(row) ?? 0, hidden);
 			this.nestedVaults?.probe([...rows].filter(([row]) => row.classList.contains('nav-folder')).map(([, path]) => path));
 		}
 	}
@@ -99,40 +107,28 @@ export class ExplorerManager {
 		this.observers.clear();
 	}
 
-	private getVisibleFolderIndex(row: HTMLElement): number {
-		const siblings = row.parentElement?.children;
-		if (!siblings) return 0;
-		let folderIndex = 0;
-		for (const sibling of siblings) {
-			if (!isHtmlElement(sibling) || !sibling.classList.contains('nav-folder')) continue;
-			if (sibling === row) return folderIndex;
-			folderIndex += 1;
-		}
-		return 0;
-	}
-
 	private applyRow(
 		row: HTMLElement,
 		path: string,
 		settings: FolderToolkitSettings,
 		focusPath: string | null,
+		folderIndex: number,
+		hidden: (path: string) => string | null,
 	): void {
 		const isFolder = row.classList.contains('nav-folder');
 		const context = {
 			settings,
-			getDescendantIndex: () => this.getVisibleFolderIndex(row),
+			getDescendantIndex: () => folderIndex,
 			isFolder,
 		};
 		const appearance = resolveAppearance(path, context);
+		const presentation = appearancePresentation(appearance, isFolder);
 		const relation = focusRelation(path, focusPath);
 		const hasText = appearance.text !== null;
 		const hasBackground = appearance.background !== null;
-		const directBackground = settings.appearanceRules[path]?.background
-			?? conditionalEffectFor(path, isFolder, 'background', settings);
-		const hasDirectBackground = directBackground !== undefined;
-		const directBackgroundHasColor = hasDirectBackground && directBackground.choice.kind !== 'none';
-		const directBackgroundBlocks = hasDirectBackground && directBackground.choice.kind === 'none';
-		const directBackgroundCascades = isFolder && directBackground?.cascade === true;
+		const directBackgroundHasColor = presentation.directColor;
+		const directBackgroundBlocks = presentation.blocked;
+		const directBackgroundCascades = presentation.cascade;
 
 		syncClass(row, 'ft-direct-color-rule', hasDirectAppearance(settings.appearanceRules[path]));
 		syncClass(row, 'ft-has-text', hasText);
@@ -148,13 +144,9 @@ export class ExplorerManager {
 			syncStyle(row.style, '--ft-border', appearance.border.color.hex);
 			syncStyle(row.style, '--ft-border-strength', appearance.border.color.strength === undefined ? null : `${appearance.border.color.strength}%`);
 			
-			const thicknessMap = appearance.border.style === 'box'
-				? { thin: '1px', medium: '2px', thick: '3px' }
-				: { thin: '2px', medium: '4px', thick: '6px' };
-			const width = thicknessMap[appearance.border.thickness ?? 'thin'];
-			syncStyle(row.style, '--ft-border-width', width);
+			syncStyle(row.style, '--ft-border-width', presentation.borderWidth);
 
-			syncClass(row, 'ft-border-shaded', isFolder && !!appearance.border.shading);
+			syncClass(row, 'ft-border-shaded', presentation.shaded);
 		} else {
 			syncClass(row, 'ft-border-box', false);
 			syncClass(row, 'ft-border-rail', false);
@@ -164,7 +156,7 @@ export class ExplorerManager {
 			syncStyle(row.style, '--ft-border-strength', null);
 		}
 
-		syncClass(row, 'ft-permanent-hidden', !settings.showHiddenItems && hiddenBy(path, settings.hiddenPaths) !== null);
+		syncClass(row, 'ft-permanent-hidden', !settings.showHiddenItems && hidden(path) !== null);
 		syncClass(row, 'ft-focus-hidden', relation === 'outside');
 		syncClass(row, 'ft-focus-ancestor', relation === 'ancestor');
 		syncClass(row, 'ft-focus-root', relation === 'root');

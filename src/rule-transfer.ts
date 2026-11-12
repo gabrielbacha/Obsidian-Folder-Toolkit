@@ -1,3 +1,4 @@
+import { hasOwn } from './record-utils';
 import { isSameOrDescendant, replacePathRoot } from './path-utils';
 import { normalizeAppearance } from './settings';
 import type { AppearanceRule } from './types';
@@ -13,10 +14,16 @@ export interface MissingRoot {
  * folder is counted under that folder, so one reattach moves the whole group.
  */
 export function findMissingRoots(rules: Record<string, AppearanceRule>, exists: (path: string) => boolean): MissingRoot[] {
-	const missing = Object.keys(rules).filter((path) => !exists(path)).sort();
+	const missing = Object.keys(rules).filter((path) => !exists(path)).map(path => ({ path, parts: path.split('/') })).sort((a, b) => {
+		for (let index = 0; index < Math.min(a.parts.length, b.parts.length); index++) {
+			if (a.parts[index] !== b.parts[index]) return a.parts[index] < b.parts[index] ? -1 : 1;
+		}
+		return a.parts.length - b.parts.length;
+	}).map(entry => entry.path);
 	const roots: MissingRoot[] = [];
 	for (const path of missing) {
-		const root = roots.find((candidate) => isSameOrDescendant(path, candidate.path));
+		const last = roots.at(-1);
+		const root = last && isSameOrDescendant(path, last.path) ? last : undefined;
 		if (root) root.count += 1;
 		else roots.push({ path, count: 1 });
 	}
@@ -32,7 +39,7 @@ export interface ReattachResult {
 
 /** Moves the rules at or below `oldRoot` to `newRoot`. A rule that already exists at the new path wins. */
 export function reattachRules(rules: Record<string, AppearanceRule>, oldRoot: string, newRoot: string): ReattachResult {
-	const result: Record<string, AppearanceRule> = {};
+	const result: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 	const moving: [string, AppearanceRule][] = [];
 	for (const [path, rule] of Object.entries(rules)) {
 		if (isSameOrDescendant(path, oldRoot)) moving.push([replacePathRoot(path, oldRoot, newRoot), rule]);
@@ -41,7 +48,7 @@ export function reattachRules(rules: Record<string, AppearanceRule>, oldRoot: st
 	let moved = 0;
 	let skipped = 0;
 	for (const [path, rule] of moving) {
-		if (path in result) skipped += 1;
+		if (hasOwn(result, path)) skipped += 1;
 		else {
 			result[path] = rule;
 			moved += 1;
@@ -52,7 +59,7 @@ export function reattachRules(rules: Record<string, AppearanceRule>, oldRoot: st
 
 /** Removes the rules at or below `root`. */
 export function removeRulesUnder(rules: Record<string, AppearanceRule>, root: string): Record<string, AppearanceRule> {
-	return Object.fromEntries(Object.entries(rules).filter(([path]) => !isSameOrDescendant(path, root)));
+	return Object.assign(Object.create(null) as Record<string, AppearanceRule>, Object.fromEntries(Object.entries(rules).filter(([path]) => !isSameOrDescendant(path, root))));
 }
 
 const CLIPBOARD_TYPE = 'folder-toolkit/appearance';
@@ -65,7 +72,7 @@ export type CopiedAppearance = Record<string, AppearanceRule>;
 
 /** Collects the rules of `root` and everything below it, with relative paths. */
 export function collectAppearance(rules: Record<string, AppearanceRule>, root: string): CopiedAppearance {
-	const copied: CopiedAppearance = {};
+	const copied: CopiedAppearance = Object.create(null) as Record<string, AppearanceRule>;
 	for (const [path, rule] of Object.entries(rules)) {
 		if (path === root) copied[OWN_RULE_KEY] = structuredClone(rule);
 		else if (isSameOrDescendant(path, root)) copied[path.slice(root.length + 1)] = structuredClone(rule);
@@ -89,7 +96,7 @@ export function parseAppearance(text: string, paletteLength: number): CopiedAppe
 		return null;
 	}
 	if (!isRecord(parsed) || parsed.type !== CLIPBOARD_TYPE || parsed.version !== CLIPBOARD_VERSION || !isRecord(parsed.rules)) return null;
-	const copied: CopiedAppearance = {};
+	const copied: CopiedAppearance = Object.create(null) as Record<string, AppearanceRule>;
 	for (const [key, value] of Object.entries(parsed.rules)) {
 		if (!isSafeRelativeKey(key)) continue;
 		const rule = normalizeAppearance(value, paletteLength);
@@ -107,7 +114,7 @@ export interface PastePlan {
 
 /** Maps copied rules onto `target`. Rules for items that do not exist there are skipped. */
 export function planPaste(copied: CopiedAppearance, target: string, exists: (path: string) => boolean): PastePlan {
-	const writes: Record<string, AppearanceRule> = {};
+	const writes: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 	let skipped = 0;
 	for (const [key, rule] of Object.entries(copied)) {
 		const path = key === OWN_RULE_KEY ? target : `${target}/${key}`;

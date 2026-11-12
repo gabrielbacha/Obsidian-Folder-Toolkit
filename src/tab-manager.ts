@@ -30,6 +30,7 @@ export function tabAccents(path: string, settings: FolderToolkitSettings): TabAc
 
 export class TabManager {
 	private frame: number | null = null;
+	private readonly styledHeaders = new Set<HTMLElement>();
 
 	constructor(
 		private readonly app: App,
@@ -51,6 +52,7 @@ export class TabManager {
 	reconcile(): void {
 		const settings = this.getSettings();
 		const processedHeaders = new Set<HTMLElement>();
+		const headerIndexes = new Map<Element, Map<Element, HTMLElement>>();
 
 		if (settings.tabStyle !== 'off') {
 			this.app.workspace.iterateAllLeaves((leaf) => {
@@ -59,10 +61,11 @@ export class TabManager {
 					? state.state.file
 					: null;
 				if (!path) return;
-				const header = this.findHeader(leaf);
+				const header = this.findHeader(leaf, headerIndexes);
 				if (!header) return;
 
 				processedHeaders.add(header);
+				this.styledHeaders.add(header);
 				const accents = tabAccents(path, settings);
 				const useBackground = accents.background !== null && settings.tabStyle === 'background';
 				const useBorder = accents.background !== null && settings.tabStyle === 'border';
@@ -80,29 +83,34 @@ export class TabManager {
 			});
 		}
 
-		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) {
-			if (!processedHeaders.has(header)) this.clearHeader(header);
+		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) this.styledHeaders.add(header);
+		for (const header of this.styledHeaders) {
+			if (!processedHeaders.has(header)) { this.clearHeader(header); this.styledHeaders.delete(header); }
 		}
 	}
 
 	stop(): void {
 		if (this.frame !== null) window.cancelAnimationFrame(this.frame);
 		this.frame = null;
-		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) {
-			this.clearHeader(header);
-		}
+		for (const header of this.app.workspace.containerEl.querySelectorAll<HTMLElement>('.workspace-tab-header')) this.styledHeaders.add(header);
+		for (const header of this.styledHeaders) this.clearHeader(header);
+		this.styledHeaders.clear();
 	}
 
-	private findHeader(leaf: WorkspaceLeaf): HTMLElement | null {
+	private findHeader(leaf: WorkspaceLeaf, indexes: Map<Element, Map<Element, HTMLElement>>): HTMLElement | null {
 		const leafElement = leaf.view.containerEl.closest('.workspace-leaf');
 		const tabsElement = leafElement?.closest('.workspace-tabs');
 		if (!leafElement || !tabsElement) return null;
+		const cached = indexes.get(tabsElement);
+		if (cached) return cached.get(leafElement) ?? null;
 		const leaves = [...tabsElement.querySelectorAll<HTMLElement>('.workspace-leaf')]
 			.filter((element) => element.closest('.workspace-tabs') === tabsElement);
 		const headers = [...tabsElement.querySelectorAll<HTMLElement>('.workspace-tab-header')]
 			.filter((element) => element.closest('.workspace-tabs') === tabsElement);
-		const index = leaves.indexOf(leafElement as HTMLElement);
-		return index >= 0 ? headers[index] ?? null : null;
+		const mapped = new Map<Element, HTMLElement>();
+		leaves.forEach((element, index) => { if (headers[index]) mapped.set(element, headers[index]); });
+		indexes.set(tabsElement, mapped);
+		return mapped.get(leafElement) ?? null;
 	}
 
 	private clearHeader(header: HTMLElement): void {

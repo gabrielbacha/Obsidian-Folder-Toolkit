@@ -1,4 +1,5 @@
 import { isSameOrDescendant, parentPaths, replacePathRoot } from './path-utils';
+import { publishSettings } from './settings-writer';
 import { normalizeSettings } from './settings';
 import {
 	DEFAULT_SETTINGS,
@@ -14,6 +15,7 @@ export interface VaultFiles {
 	exists(path: string): Promise<boolean>;
 	read(path: string): Promise<string>;
 	write(path: string, data: string): Promise<void>;
+	process(path: string, edit: (data: string) => string): Promise<string>;
 	stat(path: string): Promise<{ mtime: number } | null>;
 }
 
@@ -74,7 +76,7 @@ function tagConditional(rule: ConditionalFormatRule, root: string, palette: Pale
 export function mergeNestedLayers(own: FolderToolkitSettings, layers: readonly NestedVaultLayer[]): FolderToolkitSettings {
 	if (layers.length === 0) return own;
 	const ordered = [...layers].sort((first, second) => depth(first.root) - depth(second.root));
-	const appearanceRules: Record<string, AppearanceRule> = {};
+	const appearanceRules: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 	const conditionalFormats = [...own.conditionalFormats];
 	for (const { root, settings } of ordered) {
 		const palette = settings.paletteTemplateId;
@@ -103,7 +105,7 @@ export function renameRules(
 	newPath: string,
 ): Record<string, AppearanceRule> | null {
 	let changed = false;
-	const result: Record<string, AppearanceRule> = {};
+	const result: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 	for (const [path, rule] of Object.entries(rules)) {
 		const next = replacePathRoot(path, oldPath, newPath);
 		if (next !== path) changed = true;
@@ -121,6 +123,8 @@ export class NestedVaultStore {
 	private readonly probes = new Map<string, Promise<boolean>>();
 	private readonly vaultRoots = new Set<string>();
 	private readonly layers = new Map<string, NestedVaultLayer & { mtime: number }>();
+	private disposed = false;
+	private readonly loadGenerations = new Map<string, number>();
 	private writeQueue: Promise<unknown> = Promise.resolve();
 	private mergedFor: { own: FolderToolkitSettings; result: FolderToolkitSettings } | null = null;
 
@@ -158,23 +162,28 @@ export class NestedVaultStore {
 	/** Checks folders that the explorer shows. Each folder is checked once. */
 	probe(folderPaths: Iterable<string>): void {
 		for (const path of folderPaths) {
-			if (!path || path === '/' || this.probes.has(path)) continue;
+			if (this.disposed || !path || path === '/' || this.probes.has(path)) continue;
 			void this.isVaultRoot(path).then(async (isVault) => {
-				if (isVault) await this.loadLayer(path);
+				if (!this.disposed && this.probes.has(path) && isVault) await this.loadLayer(path);
 			});
 		}
 	}
 
 	/** Reads again each nested settings file whose modified time changed. */
 	async refresh(): Promise<void> {
-		await Promise.all([...this.vaultRoots].map((root) => this.loadLayer(root)));
+		const paths = [...this.probes.keys()];
+		this.probes.clear();
+		await Promise.all(paths.map(async (root) => {
+			if (await this.isVaultRoot(root)) await this.loadLayer(root, true);
+			else if (this.vaultRoots.delete(root)) { this.layers.delete(root); this.changed(); }
+		}));
 	}
 
 	/** Forgets cached vaults at or below `path`, after a rename or delete. */
 	forget(path: string): void {
 		let changed = false;
 		for (const probed of [...this.probes.keys()]) {
-			if (isSameOrDescendant(probed, path)) this.probes.delete(probed);
+			if (isSameOrDescendant(probed, path)) { this.probes.delete(probed); this.loadGenerations.set(probed, (this.loadGenerations.get(probed) ?? 0) + 1); }
 		}
 		for (const root of [...this.vaultRoots]) {
 			if (!isSameOrDescendant(root, path)) continue;
@@ -191,6 +200,7 @@ export class NestedVaultStore {
 			if (!(await this.files.exists(this.pluginDir(parent)))) {
 				return { root: null, relativePath: path, skippedVault: parent };
 			}
+			await this.loadLayer(parent);
 			return { root: parent, relativePath: path.slice(parent.length + 1) };
 		}
 		return { root: null, relativePath: path };
@@ -208,15 +218,19 @@ export class NestedVaultStore {
 	/** Applies `edit` to the appearance rules of a nested vault. `edit` returns false when it changed nothing. */
 	async mutate(root: string, edit: (rules: Record<string, AppearanceRule>) => boolean): Promise<void> {
 		const task = this.writeQueue.then(async () => {
+			if (this.disposed) throw new Error('Nested settings owner is closed.');
+			await this.isVaultRoot(root);
 			const path = this.dataPath(root);
 			// Read the file again just before the write, so that a change from that vault's own window is kept.
 			const raw: Record<string, unknown> = await this.files.exists(path)
 				? parseSettingsFile(await this.files.read(path), path)
 				: structuredClone(DEFAULT_SETTINGS) as unknown as Record<string, unknown>;
-			const rules = isRecord(raw.appearanceRules) ? raw.appearanceRules as Record<string, AppearanceRule> : {};
+			const base = structuredClone(raw);
+			const rules = Object.assign(Object.create(null) as Record<string, AppearanceRule>, isRecord(raw.appearanceRules) ? raw.appearanceRules : {});
 			if (!edit(rules)) return;
 			raw.appearanceRules = rules;
-			await this.files.write(path, JSON.stringify(raw, null, 2));
+			if (this.disposed) throw new Error('Nested settings owner is closed.');
+			await publishSettings(this.files, path, base, raw, () => !this.disposed);
 			await this.loadLayer(root, true);
 		});
 		this.writeQueue = task.catch(() => undefined);
@@ -229,7 +243,9 @@ export class NestedVaultStore {
 			probe = this.files.exists(`${path}/${this.configDir}`).catch(() => false);
 			this.probes.set(path, probe);
 		}
+		const captured = probe;
 		return probe.then((isVault) => {
+			if (this.disposed || this.probes.get(path) !== captured) return false;
 			if (isVault && !this.vaultRoots.has(path)) {
 				this.vaultRoots.add(path);
 				// The explorer marks vault folders, so a new vault needs a redraw even without settings.
@@ -240,8 +256,12 @@ export class NestedVaultStore {
 	}
 
 	private async loadLayer(root: string, force = false): Promise<void> {
+		const generation = (this.loadGenerations.get(root) ?? 0) + 1;
+		this.loadGenerations.set(root, generation);
+		const valid = () => !this.disposed && this.loadGenerations.get(root) === generation && this.vaultRoots.has(root);
 		const path = this.dataPath(root);
 		const stat = await this.files.stat(path).catch(() => null);
+		if (!valid()) return;
 		const current = this.layers.get(root);
 		if (!stat) {
 			if (current) {
@@ -253,6 +273,7 @@ export class NestedVaultStore {
 		if (!force && current?.mtime === stat.mtime) return;
 		try {
 			const settings = normalizeSettings(parseSettingsFile(await this.files.read(path), path));
+			if (!valid()) return;
 			this.layers.set(root, { root, settings, mtime: stat.mtime });
 			this.changed();
 		} catch (error) {
@@ -260,7 +281,14 @@ export class NestedVaultStore {
 		}
 	}
 
+	dispose(): void {
+		this.disposed = true;
+		this.probes.clear();
+		this.loadGenerations.clear();
+	}
+
 	private changed(): void {
+		if (this.disposed) return;
 		this.mergedFor = null;
 		this.onChange();
 	}

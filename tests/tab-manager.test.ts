@@ -227,3 +227,20 @@ describe('open note tabs', () => {
 		expect(header.style.getPropertyValue('--ft-tab-background')).toBe('');
 	});
 });
+
+
+it('cleans styled popout headers on mode off, leaf removal and stop', () => {
+	const popout = document.implementation.createHTMLDocument('Generated popout');
+	const tabs = popout.createElement('div'); tabs.className = 'workspace-tabs';
+	const header = popout.createElement('div'); header.className = 'workspace-tab-header';
+	const leafElement = popout.createElement('div'); leafElement.className = 'workspace-leaf';
+	const content = popout.createElement('div'); leafElement.append(content); tabs.append(header, leafElement); popout.body.append(tabs);
+	const root = document.createElement('div'); let leaves = [createLeaf(content, 'A/note.md')]; let current = settings('background');
+	const app = { workspace: { containerEl: root, iterateAllLeaves: (visit: (leaf: WorkspaceLeaf) => void) => leaves.forEach(visit) } } as unknown as App;
+	const manager = new TabManager(app, () => current);
+	const empty = () => { expect([...header.classList].filter(value => value.startsWith('ft-'))).toEqual([]); expect(header.style.length).toBe(0); };
+	manager.reconcile(); expect(header.classList.contains('ft-tab-has-text')).toBe(true);
+	current = settings('off'); manager.reconcile(); empty();
+	current = settings('background'); manager.reconcile(); leaves = []; manager.reconcile(); empty();
+	leaves = [createLeaf(content, 'A/note.md')]; manager.reconcile(); manager.stop(); empty();
+});

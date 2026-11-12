@@ -1,3 +1,4 @@
+import { installDomHelpers } from "./dom-helpers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Setting } from "obsidian";
 import FolderToolkitPlugin from "../src/main";
@@ -5,29 +6,6 @@ import { ConfirmRemoveModal } from "../src/ui/confirm-remove-modal";
 import { FolderToolkitSettingTab } from "../src/ui/settings-tab";
 import type { ConditionalFormatRule, FolderToolkitSettings } from "../src/types";
 
-function installDomHelpers(): void {
-	HTMLElement.prototype.createDiv = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) { return this.createEl("div", options); };
-	HTMLElement.prototype.createSpan = function (options?: string | { text?: string; cls?: string; attr?: Record<string, string> }) { return this.createEl("span", options); };
-	HTMLElement.prototype.createEl = function <K extends keyof HTMLElementTagNameMap>(tag: K, options?: string | { text?: string; cls?: string; attr?: Record<string, string>; type?: string; value?: string; placeholder?: string }) {
-		const element = document.createElement(tag);
-		if (typeof options === "string") element.className = options;
-		else if (options) {
-			if (options.text !== undefined) element.textContent = options.text;
-			if (options.cls) element.className = options.cls;
-			if (options.type) element.setAttribute("type", options.type);
-			if (options.value !== undefined) (element as HTMLInputElement).value = options.value;
-			if (options.placeholder) (element as HTMLInputElement).placeholder = options.placeholder;
-			for (const [name, value] of Object.entries(options.attr ?? {})) element.setAttribute(name, value);
-		}
-		this.append(element);
-		return element;
-	};
-	HTMLElement.prototype.addClass = function (...classes: string[]) { this.classList.add(...classes); };
-	HTMLElement.prototype.removeClass = function (...classes: string[]) { this.classList.remove(...classes); };
-	HTMLElement.prototype.toggleClass = function (className: string, value: boolean) { this.classList.toggle(className, value); };
-	HTMLElement.prototype.empty = function () { this.replaceChildren(); };
-	HTMLElement.prototype.setText = function (text: string) { this.textContent = text; };
-}
 
 function rule(id: string, pattern: string): ConditionalFormatRule {
 	return { id, target: "folder", match: "equals", pattern, fontEnabled: true, color: { kind: "custom", hex: "#C8C8C8", strength: 100 }, bold: false, strikethrough: false };
@@ -212,4 +190,42 @@ describe("name-rule settings UI", () => {
 		view.cleanup?.();
 		open.mockRestore();
 	});
+});
+
+it("retains a newer conditional draft while an earlier save is pending", async () => {
+	installDomHelpers(); const h = harness(); const rendered = h.render();
+	rendered.settingEl.querySelector<HTMLButtonElement>('.ft-conditional-disclosure')!.click(); const editor = h.render();
+	const pattern = editor.settingEl.querySelector<HTMLInputElement>('input[aria-label="Name pattern"]')!; pattern.value = 'first'; pattern.dispatchEvent(new Event('input'));
+	let complete!: () => void; h.updateConditionalFormat.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
+	editor.settingEl.querySelector<HTMLButtonElement>('.ft-conditional-footer .mod-cta')!.click();
+	pattern.value = 'newer'; pattern.dispatchEvent(new Event('input'));
+	const rebuilt = h.render(); expect(rebuilt.settingEl.querySelector<HTMLButtonElement>('.ft-conditional-footer .mod-cta')!.disabled).toBe(true);
+	complete(); await Promise.resolve(); await Promise.resolve();
+	const final = h.render(); expect(final.settingEl.querySelector<HTMLInputElement>('input[aria-label="Name pattern"]')!.value).toBe('newer');
+});
+
+it('keeps large appearance lists reachable through bounded pages and reuses unchanged cards during search', () => {
+	installDomHelpers();
+	const { tab, settings } = harness([]);
+	for (let index = 0; index < 230; index++) settings.appearanceRules[`Rule ${String(index).padStart(3, '0')}`] = {};
+	const toolkit = (tab as unknown as { toolkit: FolderToolkitPlugin }).toolkit;
+	Object.assign(toolkit, { app: { vault: { getAbstractFileByPath: (path: string) => ({ path }) } }, missingAppearanceRoots: () => [] });
+	const settingEl = document.createElement('div'); document.body.append(settingEl);
+	const controlEl = document.createElement('div'); settingEl.append(controlEl);
+	const setting = { settingEl, controlEl, setName() { return this; }, setHeading() { return this; } } as unknown as Setting;
+	const render = tab as unknown as { renderPathManager(setting: Setting): () => void };
+	const cleanup = render.renderPathManager(setting);
+	const search = settingEl.querySelector<HTMLInputElement>('input[type=search]')!;
+	const firstCard = settingEl.querySelector('.ft-rule-card');
+	search.value = 'Rule'; search.dispatchEvent(new Event('input'));
+	expect(settingEl.querySelector('.ft-rule-card')).toBe(firstCard);
+	expect(settingEl.querySelectorAll('.ft-rule-card')).toHaveLength(100);
+	settingEl.querySelector<HTMLButtonElement>('button[aria-label="Next appearance rules"]')!.click();
+	expect(settingEl.textContent).toContain('Showing 101–200 of 230.');
+	settingEl.querySelector<HTMLButtonElement>('button[aria-label="Next appearance rules"]')!.click();
+	expect(settingEl.querySelectorAll('.ft-rule-card')).toHaveLength(30);
+	expect(document.activeElement?.getAttribute('aria-label')).toBe('Previous appearance rules');
+	search.value = 'Rule 229'; search.dispatchEvent(new Event('input'));
+	expect(settingEl.querySelectorAll('.ft-rule-card')).toHaveLength(1); expect(settingEl.textContent).toContain('Rule 229');
+	cleanup();
 });

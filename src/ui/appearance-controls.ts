@@ -14,6 +14,7 @@ export interface ColorControlOptions {
 
 export class AppearanceControlRenderer {
 	private cleanups: Array<() => void> = [];
+	private readonly pickerClosers: Array<() => boolean> = [];
 
 	/** `palette` returns the palette to show. It defaults to this vault's palette. */
 	constructor(
@@ -24,6 +25,12 @@ export class AppearanceControlRenderer {
 	dispose(): void {
 		for (const cleanup of this.cleanups) cleanup();
 		this.cleanups = [];
+		this.pickerClosers.length = 0;
+	}
+
+	closeOpenPicker(): boolean {
+		for (const close of [...this.pickerClosers].reverse()) if (close()) return true;
+		return false;
 	}
 
 	renderColorControls(container: HTMLElement, options: ColorControlOptions): void {
@@ -35,7 +42,7 @@ export class AppearanceControlRenderer {
 			this.choiceButton(modes, 'No color', selected?.kind === 'none', () => onSelect({ kind: 'none' }, true), disabled);
 		}
 		const template = paletteTemplate(this.palette());
-		const selectedStrength = selected && selected.kind !== 'none' ? selected.strength : undefined;
+		const strength = () => activeChoice?.strength;
 		let activeChoice: Exclude<ColorChoice, { kind: 'none' }> | undefined = selected?.kind === 'none' ? undefined : selected;
 		const paletteLabel = host.createDiv('ft-palette-label');
 		paletteLabel.createSpan({ text: template.label });
@@ -51,7 +58,7 @@ export class AppearanceControlRenderer {
 			});
 			button.disabled = disabled;
 			button.style.setProperty('--ft-swatch', hex);
-			button.addEventListener('click', () => onSelect({ kind: 'preset', slot, ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) }, true));
+			button.addEventListener('click', () => onSelect({ kind: 'preset', slot, ...(strength() === undefined ? {} : { strength: strength() }) }, true));
 		}
 		if (includeWhite) {
 			const isSelected = selected?.kind === 'custom' && selected.hex === '#FFFFFF';
@@ -60,7 +67,7 @@ export class AppearanceControlRenderer {
 				attr: { type: 'button', 'aria-label': 'White', 'aria-pressed': String(isSelected), title: 'White' },
 			});
 			white.disabled = disabled;
-			white.addEventListener('click', () => onSelect({ kind: 'custom', hex: '#FFFFFF', ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) }, true));
+			white.addEventListener('click', () => onSelect({ kind: 'custom', hex: '#FFFFFF', ...(strength() === undefined ? {} : { strength: strength() }) }, true));
 		}
 
 		const custom = host.createDiv('ft-custom-control');
@@ -88,9 +95,12 @@ export class AppearanceControlRenderer {
 		const text = field.createEl('input', { attr: { type: 'text', 'aria-label': 'Custom hex color', autocomplete: 'off', spellcheck: 'false' } });
 		text.value = color.value.toUpperCase();
 		const error = field.createDiv({ text: 'Enter a 3- or 6-digit hex color.', cls: 'ft-field-error', attr: { role: 'status' } });
+		error.id = `ft-color-error-${crypto.randomUUID()}`;
+		text.setAttribute('aria-describedby', error.id);
+		text.setAttribute('aria-invalid', 'false');
 		let currentHex = color.value.toUpperCase();
 		const selectCustom = (): void => {
-			const choice: Exclude<ColorChoice, { kind: 'none' }> = { kind: 'custom', hex: currentHex, ...(selectedStrength === undefined ? {} : { strength: selectedStrength }) };
+			const choice: Exclude<ColorChoice, { kind: 'none' }> = { kind: 'custom', hex: currentHex, ...(strength() === undefined ? {} : { strength: strength() }) };
 			activeChoice = choice;
 			for (const swatch of grid.querySelectorAll<HTMLButtonElement>('.ft-swatch')) {
 				swatch.classList.remove('is-selected');
@@ -100,7 +110,7 @@ export class AppearanceControlRenderer {
 		};
 		const commit = (value: string): void => {
 			const hex = normalizeHex(value);
-			text.toggleAttribute('aria-invalid', !hex);
+			text.setAttribute('aria-invalid', String(!hex));
 			error.classList.toggle('is-visible', !hex);
 			if (!hex) return;
 			color.value = hex;
@@ -127,6 +137,7 @@ export class AppearanceControlRenderer {
 				if (!activeChoice) return;
 				const strength = Number(slider.value);
 				value.textContent = String(strength) + '%';
+				reset.disabled = disabled;
 				activeChoice = { ...activeChoice, strength };
 				onSelect(activeChoice, false);
 			});
@@ -142,10 +153,11 @@ export class AppearanceControlRenderer {
 			if (open) text.focus();
 			else if (restoreFocus) trigger.focus();
 		};
+		this.pickerClosers.push(() => { if (popover.hidden) return false; setOpen(false, true); return true; });
 		trigger.addEventListener('click', () => setOpen(popover.hidden));
 		close.addEventListener('click', () => setOpen(false, true));
 		popover.addEventListener('keydown', (event) => {
-			if (event.key === 'Escape') { event.preventDefault(); setOpen(false, true); }
+			if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false, true); }
 		});
 		const onDocumentPointer = (event: PointerEvent): void => {
 			if (!custom.contains(event.target as Node)) setOpen(false);

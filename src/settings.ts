@@ -1,7 +1,6 @@
 import { normalizeHex, normalizePaletteTemplateId, normalizeStrength, paletteTemplate } from './colors';
 import {
 	DEFAULT_CONDITIONAL_FORMATS,
-	DEFAULT_SETTINGS,
 	SCHEMA_VERSION,
 	VAULT_MARKERS,
 	type VaultMarker,
@@ -46,10 +45,12 @@ function normalizeEffect(value: unknown, paletteLength: number): EffectRule | un
 function normalizeTextAppearance(value: unknown, paletteLength: number): TextAppearanceRule | undefined {
 	if (!isRecord(value)) return undefined;
 	const color = normalizeChoice(value.color ?? value.choice, paletteLength);
-	const hasTypography = typeof value.bold === 'boolean' || typeof value.strikethrough === 'boolean';
+	const inheritTypography = value.inheritTypography === true;
+	const hasTypography = !inheritTypography && (typeof value.bold === 'boolean' || typeof value.strikethrough === 'boolean');
 	if (!color && !hasTypography) return undefined;
 	return {
 		...(color ? { color } : {}),
+		...(inheritTypography ? { inheritTypography: true } : {}),
 		bold: value.bold === true,
 		strikethrough: value.strikethrough === true,
 		cascade: value.cascade === true,
@@ -164,10 +165,16 @@ function addDefaultConditionalFormats(rules: ConditionalFormatRule[]): Condition
 }
 
 export function normalizeSettings(raw: unknown): FolderToolkitSettings {
-	if (!isRecord(raw)) return structuredClone(DEFAULT_SETTINGS);
+	if (raw === null || raw === undefined) raw = {};
+	if (!isRecord(raw)) throw new Error('Saved Folder Toolkit settings must be an object. The original data is unchanged.');
+	if (raw.schemaVersion !== undefined && (typeof raw.schemaVersion !== 'number' || !Number.isSafeInteger(raw.schemaVersion) || raw.schemaVersion < 0)) throw new Error('Saved Folder Toolkit schema version is invalid. Settings are read-only.');
+	if (raw.appearanceRules !== undefined && !isRecord(raw.appearanceRules)) throw new Error('Saved appearance rules must be a path dictionary. Settings are read-only.');
+	if (raw.conditionalFormats !== undefined && !Array.isArray(raw.conditionalFormats)) throw new Error('Saved name rules must be a list. Settings are read-only.');
+	if (raw.hiddenPaths !== undefined && !Array.isArray(raw.hiddenPaths)) throw new Error('Saved hidden paths must be a list. Settings are read-only.');
+	if (typeof raw.schemaVersion === 'number' && raw.schemaVersion > SCHEMA_VERSION) throw new Error(`Settings schema ${raw.schemaVersion} requires a newer Folder Toolkit. Settings are read-only.`);
 	const paletteTemplateId = normalizePaletteTemplateId(raw.paletteTemplateId);
 	const paletteLength = paletteTemplate(paletteTemplateId).colors.length;
-	const appearanceRules: Record<string, AppearanceRule> = {};
+	const appearanceRules: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 	if (isRecord(raw.appearanceRules)) {
 		for (const [path, value] of Object.entries(raw.appearanceRules)) {
 			if (!path) continue;

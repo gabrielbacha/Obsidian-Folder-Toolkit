@@ -1,7 +1,7 @@
 import { resolveAutomaticText, resolveChoice, resolveTextAgainstBackground, paletteTemplate, type ResolvedColor } from './colors';
 import { parentPaths } from './path-utils';
-import { conditionalBorderFor, conditionalEffectFor, conditionalStylesFor } from './conditional-format';
-import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings, TextAppearanceRule } from './types';
+import { conditionalAppearanceFor } from './conditional-format';
+import type { AppearanceRule, BorderRule, EffectRule, FolderToolkitSettings } from './types';
 
 export function hasDirectAppearance(rule: AppearanceRule | undefined): boolean {
 	const backgroundKind = rule?.background?.choice.kind;
@@ -13,6 +13,7 @@ export function hasDirectAppearance(rule: AppearanceRule | undefined): boolean {
 }
 
 export interface ResolvedAppearance {
+	directBackground?: EffectRule;
 	text: ResolvedColor | null;
 	background: ResolvedColor | null;
 	border: { style: 'box' | 'rail'; color: ResolvedColor; thickness?: 'thin' | 'medium' | 'thick'; shading?: boolean } | null;
@@ -27,9 +28,9 @@ function effectiveBackground(
 	const rules = context.settings.appearanceRules;
 	const direct = rules[path]?.background;
 	if (direct) return direct;
-	const conditional = conditionalEffectFor(path, isFolderPath(path, context), 'background', context.settings);
+	const conditional = context.conditional?.background;
 	if (conditional) return conditional;
-	for (const parent of parentPaths(path)) {
+	for (const parent of (context.parents ?? parentPaths(path))) {
 		const candidate = rules[parent]?.background;
 		if (candidate?.cascade) return candidate;
 	}
@@ -40,32 +41,41 @@ function effectiveTextColor(path: string, context: ResolverContext): EffectRule 
 	const rules = context.settings.appearanceRules;
 	const direct = rules[path]?.text;
 	if (direct?.color) return { choice: direct.color, cascade: direct.cascade };
-	const conditional = conditionalEffectFor(path, isFolderPath(path, context), 'text', context.settings);
+	const conditional = context.conditional?.text;
 	if (conditional) return conditional;
-	for (const parent of parentPaths(path)) {
+	for (const parent of (context.parents ?? parentPaths(path))) {
 		const candidate = rules[parent]?.text;
 		if (candidate?.cascade && candidate.color) return { choice: candidate.color, cascade: true };
 	}
 	return undefined;
 }
 
-function effectiveTypography(path: string, context: ResolverContext): Pick<TextAppearanceRule, 'bold' | 'strikethrough'> {
+export interface TypographyResolution {
+	bold: boolean;
+	strikethrough: boolean;
+	origin: string | null;
+	kind: 'direct' | 'conditional' | 'ancestor' | 'default';
+}
+
+export function typographyFor(path: string, context: ResolverContext): TypographyResolution {
 	const rules = context.settings.appearanceRules;
 	const direct = rules[path]?.text;
-	if (direct) return direct;
-	const conditional = conditionalStylesFor(path, isFolderPath(path, context), context.settings);
-	if (conditional) return conditional;
-	for (const parent of parentPaths(path)) {
+	if (direct && !direct.inheritTypography) return { bold: direct.bold, strikethrough: direct.strikethrough, origin: path, kind: 'direct' };
+	const conditional = (context.conditional ?? conditionalAppearanceFor(path, isFolderPath(path, context), context.settings))?.styles;
+	if (conditional) return { ...conditional, origin: null, kind: 'conditional' };
+	for (const parent of (context.parents ?? parentPaths(path))) {
 		const candidate = rules[parent]?.text;
-		if (candidate?.cascade) return candidate;
+		if (candidate?.cascade && !candidate.inheritTypography) return { bold: candidate.bold, strikethrough: candidate.strikethrough, origin: parent, kind: 'ancestor' };
 	}
-	return { bold: false, strikethrough: false };
+	return { bold: false, strikethrough: false, origin: null, kind: 'default' };
 }
 
 export interface ResolverContext {
 	settings: FolderToolkitSettings;
 	getDescendantIndex?: (path: string, root: string) => number;
 	isFolder?: boolean;
+	parents?: string[];
+	conditional?: ReturnType<typeof conditionalAppearanceFor>;
 }
 
 function isFolderPath(path: string, context: ResolverContext): boolean {
@@ -83,14 +93,14 @@ function effectiveBorder(
 		return direct;
 	}
 
-	const conditional = conditionalBorderFor(path, isFolderPath(path, context), context.settings);
+	const conditional = context.conditional?.border;
 	if (conditional) return conditional;
 
 	// Descendant border rules only apply to folders
 	if (!isFolderPath(path, context)) return undefined;
 
 	// Alternating borders intentionally apply to direct subfolders only.
-	const parents = parentPaths(path);
+	const parents = (context.parents ?? parentPaths(path));
 	if (parents.length === 0) return undefined;
 	const immediateParent = parents[0];
 	const descendants = context.settings.appearanceRules[immediateParent]?.descendants;
@@ -112,6 +122,7 @@ function effectiveBorder(
 }
 
 export function resolveAppearance(path: string, context: ResolverContext): ResolvedAppearance {
+	context = { ...context, parents: parentPaths(path), conditional: conditionalAppearanceFor(path, isFolderPath(path, context), context.settings) };
 	const text = effectiveTextColor(path, context);
 	const background = effectiveBackground(path, context);
 	const border = effectiveBorder(path, context);
@@ -123,9 +134,10 @@ export function resolveAppearance(path: string, context: ResolverContext): Resol
 		? resolveAutomaticText(resolvedBackground)
 		: null;
 	
-	const styles = effectiveTypography(path, context);
+	const styles = typographyFor(path, context);
 
 	return {
+		directBackground: context.settings.appearanceRules[path]?.background ?? context.conditional?.background,
 		text: resolvedText ? resolveTextAgainstBackground(resolvedText, resolvedBackground) : automaticText,
 		background: resolvedBackground,
 		border: border && resolvedBorder ? { style: border.style, color: resolvedBorder, thickness: border.thickness, shading: border.shading } : null,

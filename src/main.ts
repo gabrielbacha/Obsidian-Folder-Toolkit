@@ -1,9 +1,11 @@
+import { hasOwn } from './record-utils';
 import { Menu, Notice, Plugin, TAbstractFile, TFolder, type App } from 'obsidian';
 import { ExplorerManager } from './explorer-manager';
 import { AppearancePreviewStore } from './appearance-preview';
 import { normalizePaletteTemplateId, paletteTemplate } from './colors';
 import { NestedVaultStore, tagAppearancePalette, type AppearanceOwner } from './nested-vaults';
 import { findNearestContainingPath, isSameOrDescendant, replacePathRoot } from './path-utils';
+import { publishSettings } from './settings-writer';
 import { normalizeSettings } from './settings';
 import {
 	OWN_RULE_KEY,
@@ -22,8 +24,6 @@ import { VAULT_MARKERS, type AppearanceRule, type ConditionalFormatRule, type Fo
 import { AppearanceModal, type AppearanceTarget } from './ui/appearance-modal';
 import { MissingItemsModal } from './ui/missing-items-modal';
 
-/** Time after a rename in a nested vault before the moved rules are checked again. */
-const NESTED_RENAME_RECHECK_MS = 2000;
 import { FolderToolkitSettingTab } from './ui/settings-tab';
 
 export default class FolderToolkitPlugin extends Plugin {
@@ -34,9 +34,23 @@ export default class FolderToolkitPlugin extends Plugin {
 	private focusPath: string | null = null;
 	private readonly appearancePreview = new AppearancePreviewStore();
 	private nested!: NestedVaultStore;
+	private saveQueue: Promise<unknown> = Promise.resolve();
+	private requestedSettings: FolderToolkitSettings | null = null;
+	private settingsGeneration = 0;
+	private managedPathsEpoch = 0;
+	private settingsReadOnlyError: string | null = null;
+	private unloaded = false;
+	private appearanceEditors: Set<AppearanceModal> | undefined;
+	private renameQueue: Promise<unknown> = Promise.resolve();
 
 	async onload(): Promise<void> {
-		this.settings = normalizeSettings(await this.loadData());
+		try { this.settings = normalizeSettings(await this.loadData()); }
+		catch (error) {
+			this.settingsReadOnlyError = error instanceof Error ? error.message : String(error);
+			new Notice(this.settingsReadOnlyError);
+			this.settings = normalizeSettings(null);
+		}
+		this.requestedSettings = structuredClone(this.settings);
 		this.nested = new NestedVaultStore(this.app.vault.adapter, this.app.vault.configDir, this.manifest.id, () => {
 			this.explorer?.reconcileSoon();
 			this.tabs?.reconcileSoon();
@@ -58,8 +72,9 @@ export default class FolderToolkitPlugin extends Plugin {
 			this.tabs.reconcileSoon();
 		}));
 		this.registerEvent(this.app.workspace.on('file-open', () => this.tabs.reconcileSoon()));
-		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => void this.handleRename(file, oldPath)));
-		this.registerEvent(this.app.vault.on('delete', (file) => void this.handleDelete(file)));
+		this.registerEvent(this.app.vault.on('create', () => { this.managedPathsEpoch += 1; }));
+		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => { this.managedPathsEpoch += 1; void this.handleRename(file, oldPath); }));
+		this.registerEvent(this.app.vault.on('delete', (file) => { this.managedPathsEpoch += 1; void this.handleDelete(file); }));
 		// A nested vault's settings change when it is edited in its own window. Read them again when this window gets focus.
 		this.registerDomEvent(window, 'focus', () => void this.refreshNestedVaults());
 
@@ -106,13 +121,32 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	/** Obsidian calls this when this vault's `data.json` changes on disk, for example from Sync or from an outer vault. */
 	async onExternalSettingsChange(): Promise<void> {
-		this.settings = normalizeSettings(await this.loadData());
-		this.nested.invalidate();
-		this.explorer.reconcileSoon();
-		this.tabs.reconcileSoon();
+		const generation = this.settingsGeneration;
+		const load = (this.saveQueue ?? Promise.resolve()).then(async () => {
+			try {
+				const settings = normalizeSettings(await this.loadData());
+				if (this.unloaded || generation !== this.settingsGeneration) return;
+				this.settings = settings;
+				this.requestedSettings = structuredClone(settings);
+				this.settingsReadOnlyError = null;
+				this.nested.invalidate();
+				this.explorer.reconcileSoon();
+				this.tabs.reconcileSoon();
+			} catch (error) {
+				if (this.unloaded || generation !== this.settingsGeneration) return;
+				this.settingsReadOnlyError = error instanceof Error ? error.message : String(error);
+				new Notice(this.settingsReadOnlyError);
+			}
+		});
+		this.saveQueue = load.catch(() => undefined);
+		await load;
 	}
 
 	onunload(): void {
+		this.unloaded = true;
+		for (const editor of [...this.appearanceEditors ?? []]) editor.close();
+		this.appearanceEditors?.clear();
+		this.nested?.dispose();
 		this.appearancePreview.clearAll();
 		this.explorer?.stop();
 		this.tabs?.stop();
@@ -129,6 +163,8 @@ export default class FolderToolkitPlugin extends Plugin {
 		this.settingTab.revealConditionalFormats();
 	}
 
+	managedPathsRevision(): string { return `${this.settingsGeneration ?? 0}:${this.managedPathsEpoch ?? 0}`; }
+
 	/** The settings that the explorer and tabs show: this vault, nested vaults, and open previews. */
 	effectiveSettings(): FolderToolkitSettings {
 		return this.appearancePreview.apply(this.nested?.effective(this.settings) ?? this.settings);
@@ -136,7 +172,7 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	/** Finds the vault that stores the appearance of `path` and its current rule there. */
 	async appearanceTarget(path: string): Promise<AppearanceTarget> {
-		const owner: AppearanceOwner = this.settings.nestedVaults
+		const owner: AppearanceOwner = !hasOwn(this.settings.appearanceRules, path) && this.settings.nestedVaults
 			? await this.nested.ownerOf(path)
 			: { root: null, relativePath: path };
 		if (owner.root === null) {
@@ -151,13 +187,24 @@ export default class FolderToolkitPlugin extends Plugin {
 	}
 
 	async openAppearanceEditor(path: string, onSaved?: () => void): Promise<void> {
+		if (this.unloaded) return;
+		const originalItem = this.app.vault.getAbstractFileByPath(path);
 		try {
-			new AppearanceModal(this, path, onSaved, await this.appearanceTarget(path)).open();
+			const target = await this.appearanceTarget(path);
+			if (this.unloaded) return;
+			if (!originalItem || this.app.vault.getAbstractFileByPath(path) !== originalItem || originalItem.path !== path) {
+				new Notice('This item moved or changed. Reopen its appearance editor.'); return;
+			}
+			new AppearanceModal(this, path, onSaved, target).open();
 		} catch (error) {
+			if (this.unloaded) return;
 			console.error('Folder Toolkit: could not open the appearance editor.', error);
 			new Notice('Could not read the appearance settings for this item.');
 		}
 	}
+
+	registerAppearanceEditor(editor: AppearanceModal): void { (this.appearanceEditors ??= new Set()).add(editor); }
+	unregisterAppearanceEditor(editor: AppearanceModal): void { this.appearanceEditors?.delete(editor); }
 
 	/** Saves `rule` for `path`. With a nested `owner`, the rule is saved in that vault's settings. */
 	async setAppearance(path: string, rule: AppearanceRule, owner?: AppearanceOwner): Promise<void> {
@@ -252,7 +299,7 @@ export default class FolderToolkitPlugin extends Plugin {
 				this.settings.appearanceRules[targetPath] = rule;
 				ownChanged = true;
 			} else {
-				const group = nestedWrites.get(owner.root) ?? {};
+				const group = nestedWrites.get(owner.root) ?? Object.create(null) as Record<string, AppearanceRule>;
 				group[owner.relativePath] = rule;
 				nestedWrites.set(owner.root, group);
 			}
@@ -274,13 +321,14 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	/** Shows `rule` before it is saved. `palette` is the palette of a nested vault that owns `path`. */
 	previewAppearance(path: string, rule: AppearanceRule, palette?: PaletteTemplateId): void {
+		if (this.unloaded) return;
 		this.appearancePreview.set(path, palette ? tagAppearancePalette(rule, palette) : rule);
 		this.explorer.reconcileSoon();
 	}
 
 	clearAppearancePreview(path: string): void {
 		this.appearancePreview.clear(path);
-		this.explorer.reconcileSoon();
+		if (!this.unloaded) this.explorer.reconcileSoon();
 	}
 
 	async hidePath(path: string): Promise<void> {
@@ -435,9 +483,19 @@ export default class FolderToolkitPlugin extends Plugin {
 	}
 
 	private async handleRename(file: TAbstractFile, oldPath: string): Promise<void> {
+		const newPath = file.path;
+		const task = (this.renameQueue ?? Promise.resolve()).then(async () => {
+			if (this.unloaded) return;
+			await this.performRename({ path: newPath } as TAbstractFile, oldPath);
+		});
+		this.renameQueue = task.catch(() => undefined);
+		await task;
+	}
+
+	private async performRename(file: TAbstractFile, oldPath: string): Promise<void> {
 		this.appearancePreview.clearSubtree(oldPath);
 		let changed = false;
-		const remapped: Record<string, AppearanceRule> = {};
+		const remapped: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 		for (const [path, rule] of Object.entries(this.settings.appearanceRules)) {
 			const nextPath = replacePathRoot(path, oldPath, file.path);
 			if (nextPath !== path) changed = true;
@@ -461,8 +519,8 @@ export default class FolderToolkitPlugin extends Plugin {
 	/**
 	 * Moves nested-vault rules after a rename made in this vault. The rules come from the
 	 * cached copy, because the nested vault's own window sees the rename as a delete and
-	 * can remove them from its file first. The move runs again after a short delay for
-	 * the same reason. Every step is safe to repeat.
+	 * can remove them from its file first. The move has a durable request and runs once in rename-event order.
+	 * It never replays a captured path after a later rename or unload.
 	 */
 	private async renameNestedRules(oldPath: string, newPath: string): Promise<void> {
 		const oldLayerRoots = this.nestedRootsAt(oldPath);
@@ -470,7 +528,7 @@ export default class FolderToolkitPlugin extends Plugin {
 		const [from, to] = await Promise.all([this.nested.ownerOf(oldPath), this.nested.ownerOf(newPath)]);
 		if (from.root === null && to.root === null) return;
 
-		const moved: Record<string, AppearanceRule> = {};
+		const moved: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
 		if (from.root !== null) {
 			for (const [path, rule] of Object.entries(oldLayerRoots.get(from.root)?.appearanceRules ?? {})) {
 				if (isSameOrDescendant(path, from.relativePath)) moved[path.slice(from.relativePath.length)] = rule;
@@ -482,6 +540,8 @@ export default class FolderToolkitPlugin extends Plugin {
 			}
 		}
 		if (Object.keys(moved).length === 0) return;
+		const intentPath = `${this.settingsDirectory()}/move-${crypto.randomUUID()}.json`;
+		await this.app.vault.adapter.write(intentPath, JSON.stringify({ version: 1, oldPath, newPath, from, to, sourceRules: moved, state: 'prepared' }));
 
 		const apply = async (): Promise<void> => {
 			const fromRoot = from.root;
@@ -491,7 +551,7 @@ export default class FolderToolkitPlugin extends Plugin {
 			const addMissing = (rules: Record<string, AppearanceRule>): boolean => {
 				let changed = false;
 				for (const [suffix, rule] of Object.entries(moved)) {
-					if (newKey(suffix) in rules) continue;
+					if (hasOwn(rules, newKey(suffix))) continue;
 					rules[newKey(suffix)] = structuredClone(rule);
 					changed = true;
 				}
@@ -500,7 +560,9 @@ export default class FolderToolkitPlugin extends Plugin {
 			const removeOld = (rules: Record<string, AppearanceRule>, keys: string[]): boolean => {
 				let changed = false;
 				for (const key of keys) {
-					if (!(key in rules)) continue;
+					if (!hasOwn(rules, key)) continue;
+					const suffix = key.startsWith(from.relativePath) ? key.slice(from.relativePath.length) : key.slice(newPath.length);
+					if (JSON.stringify(rules[key]) !== JSON.stringify(moved[suffix])) continue;
 					delete rules[key];
 					changed = true;
 				}
@@ -510,24 +572,29 @@ export default class FolderToolkitPlugin extends Plugin {
 
 			if (fromRoot !== null && fromRoot === toRoot) {
 				await this.nested.mutate(fromRoot, (rules) => {
-					const removed = removeOld(rules, suffixes.map(oldKey).filter((key) => !suffixes.map(newKey).includes(key)));
-					return addMissing(rules) || removed;
+					const added = addMissing(rules);
+					const confirmed = suffixes.filter((suffix) => JSON.stringify(rules[newKey(suffix)]) === JSON.stringify(moved[suffix]));
+					const removed = removeOld(rules, confirmed.map(oldKey).filter((key) => !suffixes.map(newKey).includes(key)));
+					return added || removed;
 				});
 				return;
 			}
-			if (fromRoot !== null) await this.nested.mutate(fromRoot, (rules) => removeOld(rules, suffixes.map(oldKey)));
-			else if (removeOld(this.settings.appearanceRules, suffixes.map((suffix) => `${newPath}${suffix}`))) await this.persist();
-
+			// Publish destination first. Its atomic writer confirms the intended rule values.
 			if (toRoot !== null) await this.nested.mutate(toRoot, addMissing);
 			else if (addMissing(this.settings.appearanceRules)) await this.persist();
+			const targetRules = toRoot !== null ? this.nested.layer(toRoot)?.appearanceRules : this.settings.appearanceRules;
+			const confirmed = suffixes.filter((suffix) => JSON.stringify(targetRules?.[newKey(suffix)]) === JSON.stringify(moved[suffix]));
+			if (confirmed.length !== suffixes.length) new Notice('Existing destination rules were kept. Conflicting source rules remain available for recovery.');
+			if (fromRoot !== null) await this.nested.mutate(fromRoot, (rules) => removeOld(rules, confirmed.map(oldKey)));
+			else if (removeOld(this.settings.appearanceRules, confirmed.map((suffix) => `${newPath}${suffix}`))) await this.persist();
 		};
 
 		try {
 			await apply();
-			window.setTimeout(() => void apply().catch((error) => console.warn('Folder Toolkit: second check after a rename failed.', error)), NESTED_RENAME_RECHECK_MS);
+			await this.app.vault.adapter.write(intentPath, JSON.stringify({ version: 1, oldPath, newPath, from, to, sourceRules: moved, state: 'published' }));
 		} catch (error) {
 			console.error('Folder Toolkit: could not move the appearance rules in the nested vault.', error);
-			new Notice('Could not update the nested vault settings after the rename.');
+			new Notice(`Could not confirm the rule move. Source recovery is retained at ${intentPath}.`);
 		}
 	}
 
@@ -562,11 +629,27 @@ export default class FolderToolkitPlugin extends Plugin {
 		}
 	}
 
+	private settingsDirectory(): string { return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`; }
+
 	private async persist(): Promise<void> {
-		this.nested?.invalidate();
-		await this.saveData(this.settings);
-		this.explorer.reconcileSoon();
-		this.tabs.reconcileSoon();
+		if (this.settingsReadOnlyError) throw new Error(this.settingsReadOnlyError);
+		const snapshot = structuredClone(this.settings);
+
+		const generation = this.settingsGeneration = (this.settingsGeneration ?? 0) + 1;
+		const task = (this.saveQueue ?? Promise.resolve()).then(async () => {
+			if (this.unloaded) throw new Error('Folder Toolkit was unloaded before this save.');
+			const path = `${this.settingsDirectory()}/data.json`;
+			const base = this.requestedSettings ?? normalizeSettings(await this.loadData());
+			const committed = await publishSettings(this.app.vault.adapter, path, base, snapshot, () => !this.unloaded);
+			if (this.unloaded) return;
+			this.requestedSettings = structuredClone(committed);
+			if (generation === this.settingsGeneration) this.settings = committed;
+			this.nested?.invalidate();
+			this.explorer.reconcileSoon();
+			this.tabs.reconcileSoon();
+		});
+		this.saveQueue = task.catch(() => undefined);
+		await task;
 	}
 }
 

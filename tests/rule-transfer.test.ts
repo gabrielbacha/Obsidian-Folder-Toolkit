@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import FolderToolkitPlugin from '../src/main';
+import * as pathUtils from '../src/path-utils';
 import { AppearancePreviewStore } from '../src/appearance-preview';
 import {
 	collectAppearance,
@@ -162,4 +163,32 @@ describe('plugin integration', () => {
 		pick.mockRestore();
 		open.mockRestore();
 	});
+});
+
+it("treats constructor, toString, and __proto__ as ordinary path data", () => {
+	const rule = { text: { bold: true, strikethrough: false, cascade: false } };
+	for (const name of ["constructor", "toString", "__proto__"]) {
+		const result = reattachRules({ Old: rule }, "Old", name);
+		expect(Object.keys(result.rules)).toEqual([name]); expect(result.moved).toBe(1);
+	}
+});
+
+
+it('groups missing descendants even when another root sorts between their raw paths', () => {
+	expect(findMissingRoots({ A: blue, 'A/Sub': red, 'A-2': bold }, () => false)).toEqual([{ path: 'A', count: 2 }, { path: 'A-2', count: 1 }]);
+});
+it('keeps a rule dictionary safe after subtree removal and a later special-name insertion', () => {
+	const remaining = removeRulesUnder({ Old: blue }, 'Old');
+	remaining['__proto__'] = red;
+	expect(Object.keys(remaining)).toEqual(['__proto__']);
+	expect((JSON.parse(JSON.stringify(remaining)) as Record<string, AppearanceRule>)['__proto__']).toEqual(red);
+});
+
+
+it('groups a large unrelated path set with one containment pass', () => {
+	const rules: Record<string, AppearanceRule> = Object.create(null) as Record<string, AppearanceRule>;
+	for (let index = 0; index < 5000; index++) { const root = 'Root ' + index; rules[root] = blue; rules[root + '/Child'] = red; }
+	const contains = vi.spyOn(pathUtils, 'isSameOrDescendant');
+	try { const grouped = findMissingRoots(rules, () => false); expect(grouped).toHaveLength(5000); expect(grouped.every(item => item.count === 2)).toBe(true); expect(contains.mock.calls.length).toBeLessThanOrEqual(10000); }
+	finally { contains.mockRestore(); }
 });

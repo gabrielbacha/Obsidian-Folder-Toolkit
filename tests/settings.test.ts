@@ -40,7 +40,7 @@ describe('settings normalization', () => {
 
 	it('normalizes colors, removes malformed rules, and deduplicates hidden paths', () => {
 		const settings = normalizeSettings({
-			schemaVersion: 99,
+			schemaVersion: 6,
 			paletteTemplateId: 'ember',
 			appearanceRules: {
 				A: { text: { color: { kind: 'custom', hex: 'abc' }, bold: false, strikethrough: false, cascade: true } },
@@ -128,7 +128,7 @@ describe('settings normalization', () => {
 				Legacy: { text: { choice: { kind: "custom", hex: "#abc", strength: 55 }, cascade: true } },
 			},
 		});
-		expect(settings.schemaVersion).toBe(6);
+		expect(settings.schemaVersion).toBe(SCHEMA_VERSION);
 		expect(settings.appearanceRules.Legacy?.text).toEqual({
 			color: { kind: "custom", hex: "#AABBCC", strength: 55 },
 			bold: false,
@@ -149,7 +149,7 @@ describe('settings normalization', () => {
 				fontEnabled: false, color: { kind: 'custom', hex: '#FFFFFF' },
 			}],
 		});
-		expect(settings.schemaVersion).toBe(6);
+		expect(settings.schemaVersion).toBe(SCHEMA_VERSION);
 		expect(settings.appearanceRules['note.md']?.border).toEqual({
 			style: 'rail', color: { kind: 'custom', hex: '#AABBCC', strength: 55 }, thickness: 'medium', shading: false,
 		});
@@ -187,4 +187,21 @@ describe('settings normalization', () => {
 		expect(normalizeSettings({ nestedVaults: false, vaultMarker: 'icon' })).toMatchObject({ nestedVaults: false, vaultMarker: 'icon' });
 		expect(normalizeSettings({ vaultMarker: 'sparkles' }).vaultMarker).toBe('both');
 	});
+});
+
+
+it('migrates schema 6 without changing explicit typography, and retains schema 7 inheritance', () => {
+	const legacy = normalizeSettings({ schemaVersion: 6, appearanceRules: { Legacy: { text: { bold: false, strikethrough: true, cascade: true } } } });
+	expect(legacy.appearanceRules.Legacy.text).toEqual({ bold: false, strikethrough: true, cascade: true });
+	const inherited = normalizeSettings({ schemaVersion: 7, appearanceRules: { Child: { text: { color: { kind: 'custom', hex: '#123456' }, bold: false, strikethrough: false, cascade: false, inheritTypography: true } } } });
+	expect(inherited.appearanceRules.Child.text?.inheritTypography).toBe(true);
+});
+
+
+it('keeps a first-use path dictionary safe for a newly added special name', () => {
+	const settings = normalizeSettings(null);
+	settings.appearanceRules['__proto__'] = { text: { bold: true, strikethrough: false, cascade: false } };
+	expect(Object.keys(settings.appearanceRules)).toEqual(['__proto__']);
+	const restored = normalizeSettings(JSON.parse(JSON.stringify(settings)));
+	expect(restored.appearanceRules['__proto__'].text?.bold).toBe(true);
 });

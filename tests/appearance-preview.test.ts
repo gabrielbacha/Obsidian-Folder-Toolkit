@@ -91,3 +91,21 @@ describe('AppearancePreviewStore', () => {
 	});
 
 });
+
+it("shares one cached preview index and invalidates only the requested subtree", () => {
+	const preview = new AppearancePreviewStore(); const base = settings();
+	preview.set("A", { text: { bold: true, cascade: false, strikethrough: false } });
+	preview.set("B", { text: { bold: true, cascade: false, strikethrough: false } });
+	const first = preview.apply(base); expect(preview.apply(base)).toBe(first);
+	preview.clearSubtree("A"); expect(preview.apply(base).appearanceRules.B?.text?.bold).toBe(true); expect(preview.apply(base).appearanceRules.A).toEqual(base.appearanceRules.A);
+});
+
+
+it('previews a newly added special-name path as an own rule without changing the base', () => {
+	const base = settings(), preview = new AppearancePreviewStore();
+	preview.set('__proto__', { text: { bold: true, strikethrough: false, cascade: false } });
+	const shown = preview.apply(base);
+	expect(Object.keys(shown.appearanceRules)).toContain('__proto__');
+	expect(resolveAppearance('__proto__', { settings: shown }).bold).toBe(true);
+	expect(Object.keys(base.appearanceRules)).toEqual(['A']);
+});

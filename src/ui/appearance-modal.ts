@@ -1,4 +1,8 @@
-import { Modal, Notice, TAbstractFile, TFolder, setIcon } from 'obsidian';
+import DEFAULT_APPEARANCE_STRENGTH from '../appearance-tokens.json';
+import { typographyFor } from '../appearance-resolver';
+import { sameJsonData } from '../record-utils';
+import { captureFocus } from './focus-state';
+import { Modal, Notice, Scope, TAbstractFile, TFolder, setIcon } from 'obsidian';
 import {
 	createFileAppearancePreset,
 	createFolderAppearancePreset,
@@ -47,7 +51,12 @@ export class AppearanceModal extends Modal {
 	private textCascade: boolean;
 	private backgroundCascade: boolean;
 	private presetsOpen = false;
+	private presetSection: HTMLDetailsElement | null = null;
+	private readonly presetSamples: Array<{ tree: PreviewTree; build: () => PresetResult }> = [];
 	/** Copied styles for items inside this folder, saved together with the draft. */
+	private editorSaving = false;
+	private editorDisposed = false;
+	private readonly originalItem: TAbstractFile | null;
 	private pastedDescendants: CopiedAppearance | null = null;
 
 	constructor(
@@ -62,7 +71,13 @@ export class AppearanceModal extends Modal {
 			paletteTemplateId: toolkit.settings.paletteTemplateId,
 			rule: toolkit.settings.appearanceRules[path],
 		};
+		this.originalItem = toolkit.app.vault.getAbstractFileByPath(path);
 		this.controls = new AppearanceControlRenderer(toolkit, () => this.target.paletteTemplateId);
+		this.scope = new Scope(this.scope);
+		this.scope.register([], 'Escape', () => {
+			if (!this.controls.closeOpenPicker()) this.close();
+			return false;
+		});
 		this.draft = structuredClone(this.target.rule ?? {});
 		this.isFolder = toolkit.app.vault.getAbstractFileByPath(path) instanceof TFolder;
 		this.rememberedBorder = structuredClone(isBorderRule(this.draft.border) ? this.draft.border : {
@@ -78,6 +93,7 @@ export class AppearanceModal extends Modal {
 		});
 		this.textCascade = this.draft.text?.cascade ?? false;
 		this.backgroundCascade = this.draft.background?.cascade ?? false;
+		this.toolkit.registerAppearanceEditor?.(this);
 	}
 
 	onOpen(): void {
@@ -87,6 +103,10 @@ export class AppearanceModal extends Modal {
 	}
 
 	onClose(): void {
+		this.editorDisposed = true;
+		this.toolkit.unregisterAppearanceEditor?.(this);
+		this.presetSection = null;
+		this.presetSamples.length = 0;
 		this.contentEl.ownerDocument.body.removeClass('ft-show-direct-color-indicators');
 		this.clearPickerListeners();
 		this.toolkit.clearAppearancePreview(this.path);
@@ -94,6 +114,7 @@ export class AppearanceModal extends Modal {
 	}
 
 	private render(): void {
+		const restoreFocus = captureFocus(this.contentEl);
 		this.clearPickerListeners();
 		this.contentEl.empty();
 		this.contentEl.addClass('ft-appearance-modal', this.isFolder ? 'ft-appearance-modal--folder' : 'ft-appearance-modal--file');
@@ -131,15 +152,21 @@ export class AppearanceModal extends Modal {
 			this.backgroundCascade = false;
 			this.render();
 		});
-		const cancel = footer.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
+		footer.createDiv({ cls: 'ft-save-status', attr: { role: 'status' } });
+		const cancel = footer.createEl('button', { text: 'Cancel', cls: 'ft-editor-close', attr: { type: 'button' } });
 		cancel.addEventListener('click', () => this.close());
 		const save = footer.createEl('button', { text: 'Save', cls: 'mod-cta', attr: { type: 'button' } });
+		save.disabled = this.editorSaving;
 		save.addEventListener('click', () => { void this.save(save, error); });
 		this.refreshPreview();
+		this.refreshSaveState();
+		restoreFocus();
 	}
 
 	private renderPresets(): void {
+		if (this.presetSection) { this.contentEl.appendChild(this.presetSection); return; }
 		const section = this.contentEl.createEl('details', { cls: 'ft-appearance-presets' });
+		this.presetSection = section;
 		section.open = this.presetsOpen;
 		section.addEventListener('toggle', () => { this.presetsOpen = section.open; });
 		const heading = section.createEl('summary', { cls: 'ft-appearance-presets__header' });
@@ -194,6 +221,7 @@ export class AppearanceModal extends Modal {
 			const sample = button.createDiv({ cls: 'ft-appearance-preset__sample', attr: { 'aria-hidden': 'true' } });
 			const tree = buildPreviewTree(sample, this.path, this.isFolder, 'compact');
 			stylePreviewTree(tree, this.previewSettings(), this.path, this.previewRule(rule));
+			this.presetSamples.push({ tree, build: () => build(preset.id) });
 			button.createSpan({ text: preset.label, cls: 'ft-appearance-preset__label' });
 			button.addEventListener('click', () => this.applyPreset(build(preset.id)));
 		}
@@ -240,7 +268,7 @@ export class AppearanceModal extends Modal {
 	/** Loads a copied appearance into the draft. Copied styles for items inside are saved with Save. */
 	private async paste(): Promise<void> {
 		const copied = await this.toolkit.readCopiedAppearance();
-		if (!copied) return;
+		if (!copied || this.editorDisposed) return;
 		const { [OWN_RULE_KEY]: own, ...descendants } = copied;
 		this.pastedDescendants = this.isFolder && Object.keys(descendants).length > 0 ? descendants : null;
 		this.draft = structuredClone(own ?? {});
@@ -251,22 +279,43 @@ export class AppearanceModal extends Modal {
 		this.render();
 	}
 
+	private refreshSaveState(): void {
+		const status = this.contentEl.querySelector<HTMLElement>('.ft-save-status');
+		status?.setText(this.editorSaving ? 'Saving the earlier draft. Closing the editor does not cancel that save.' : '');
+		const close = this.contentEl.querySelector<HTMLButtonElement>('.ft-editor-close');
+		if (close) close.textContent = this.editorSaving ? 'Close while saving' : 'Cancel';
+	}
+
 	private async save(button: HTMLButtonElement, error: HTMLElement): Promise<void> {
+		if (this.editorSaving || this.editorDisposed) return;
+		const snapshot = structuredClone(this.draft);
+		const descendants = structuredClone(this.pastedDescendants);
+		this.editorSaving = true;
 		button.disabled = true;
+		this.refreshSaveState();
 		try {
-			if (this.isNested()) await this.toolkit.setAppearance(this.path, this.draft, this.target.owner);
-			else await this.toolkit.setAppearance(this.path, this.draft);
-			if (this.pastedDescendants) {
-				const { saved, skipped } = await this.toolkit.pasteDescendantAppearance(this.path, this.pastedDescendants);
-				const missing = skipped > 0 ? ` ${skipped} skipped because the item does not exist here.` : '';
-				new Notice(`Saved ${saved} copied ${saved === 1 ? 'style' : 'styles'} inside this folder.${missing}`);
+			const currentItem = this.toolkit.app.vault.getAbstractFileByPath(this.path);
+			if (currentItem !== this.originalItem || currentItem?.path !== this.path) throw new Error('This item moved or changed. Reopen its appearance editor.');
+			if (typeof this.toolkit.appearanceTarget === 'function') {
+				const current = await this.toolkit.appearanceTarget(this.path);
+				if (!sameJsonData(current.owner, this.target.owner) || !sameJsonData(current.rule, this.target.rule) || current.paletteTemplateId !== this.target.paletteTemplateId) throw new Error('The controlling appearance rule changed. Reopen the editor before saving.');
 			}
+			if (this.isNested()) await this.toolkit.setAppearance(this.path, snapshot, this.target.owner);
+			else await this.toolkit.setAppearance(this.path, snapshot);
+			this.target.rule = snapshot;
+			if (descendants) await this.toolkit.pasteDescendantAppearance(this.path, descendants);
+			if (this.editorDisposed) return;
 			this.onSaved?.();
-			this.close();
-		} catch {
-			error.setText('The appearance rule could not be saved. Try again.');
-			error.addClass('is-visible');
-			button.disabled = false;
+			if (sameJsonData(this.draft, snapshot) && sameJsonData(this.pastedDescendants, descendants)) this.close();
+			else new Notice('The earlier draft was saved. Your newer edits remain open.');
+		} catch (failure) {
+			const target = this.contentEl.querySelector<HTMLElement>('.ft-modal-footer .ft-field-error') ?? error;
+			target.setText(failure instanceof Error ? failure.message : 'The appearance rule could not be saved. Try again.');
+			target.addClass('is-visible');
+		} finally {
+			this.editorSaving = false;
+			if (!this.editorDisposed) this.refreshSaveState();
+			if (!this.editorDisposed) for (const save of this.contentEl.querySelectorAll<HTMLButtonElement>('.ft-modal-footer .mod-cta')) save.disabled = false;
 		}
 	}
 
@@ -286,6 +335,8 @@ export class AppearanceModal extends Modal {
 	}
 
 	private updateModalPreview(): void {
+		const settings = this.previewSettings();
+		for (const sample of this.presetSamples) stylePreviewTree(sample.tree, settings, this.path, this.previewRule(sample.build().rule));
 		if (this.previewTree) stylePreviewTree(this.previewTree, this.previewSettings(), this.path, this.previewRule(this.draft));
 	}
 
@@ -330,7 +381,7 @@ export class AppearanceModal extends Modal {
 		});
 		this.controls.renderColorControls(card, {
 			selected: this.draft.background?.choice,
-			defaultStrength: 12,
+			defaultStrength: DEFAULT_APPEARANCE_STRENGTH.background,
 			onSelect: (choice, rerender) => {
 				if (!choice) return;
 				this.draft.background = { choice, cascade: this.backgroundCascade };
@@ -357,7 +408,7 @@ export class AppearanceModal extends Modal {
 		});
 		this.controls.renderColorControls(card, {
 			selected: this.draft.text?.color,
-			defaultStrength: 100,
+			defaultStrength: DEFAULT_APPEARANCE_STRENGTH.text,
 			includeWhite: true,
 			onSelect: (choice, rerender) => {
 				if (!choice) return;
@@ -365,22 +416,29 @@ export class AppearanceModal extends Modal {
 				if (rerender) this.render(); else this.refreshPreview();
 			},
 		});
-		this.controls.renderTypography(card, this.draft.text?.bold ?? false, this.draft.text?.strikethrough ?? false, (bold, strikethrough) => {
+		this.controls.choiceButton(actions, 'Use inherited typography', !this.draft.text || this.draft.text.inheritTypography === true, () => {
+			if (this.draft.text) this.draft.text.inheritTypography = true;
+			this.removeEmptyTextOverride();
+			this.render();
+		});
+		const effective = typographyFor(this.path, { settings: { ...this.previewSettings(), appearanceRules: { ...this.previewSettings().appearanceRules, [this.path]: this.previewRule(this.draft) } }, isFolder: this.isFolder });
+		card.createDiv({ cls: 'ft-control-origin', text: effective.kind === 'direct' ? 'Typography from this rule.' : effective.kind === 'ancestor' ? `Typography inherited from ${effective.origin}.` : effective.kind === 'conditional' ? 'Typography from the matching name rule.' : 'Default typography.' });
+		this.controls.renderTypography(card, effective.bold, effective.strikethrough, (bold, strikethrough) => {
 			this.draft.text = { ...this.ensureText(), bold, strikethrough };
+			delete this.draft.text.inheritTypography;
 			this.removeEmptyTextOverride();
 			this.render();
 		});
 	}
 
 	private ensureText(): TextAppearanceRule {
-		this.draft.text ??= { bold: false, strikethrough: false, cascade: this.textCascade };
+		this.draft.text ??= { bold: false, strikethrough: false, cascade: this.textCascade, inheritTypography: true };
 		return this.draft.text;
 	}
 
 	private removeEmptyTextOverride(): void {
-		if (this.draft.text && this.draft.text.color === undefined && !this.draft.text.bold && !this.draft.text.strikethrough) {
-			delete this.draft.text;
-		}
+		// False-only rules remain explicit; inheritance removes typography without clearing other channels.
+		if (this.draft.text?.inheritTypography && !this.draft.text.color) delete this.draft.text;
 	}
 
 	private renderCascade(container: HTMLElement, key: EffectKey): void {
@@ -439,7 +497,7 @@ export class AppearanceModal extends Modal {
 
 		this.controls.renderColorControls(card, {
 			selected: activeBorder?.color,
-			defaultStrength: this.rememberedBorder.style === 'box' ? 42 : 55,
+			defaultStrength: this.rememberedBorder.style === 'box' ? DEFAULT_APPEARANCE_STRENGTH.box : DEFAULT_APPEARANCE_STRENGTH.rail,
 			onSelect: (choice, rerender) => {
 				if (choice && choice.kind !== 'none') {
 					this.rememberedBorder = { ...this.rememberedBorder, color: choice };
