@@ -3,13 +3,11 @@
 Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily simplify. It combines independent folder and note colors, cascading folder styles, subtree borders, permanent hiding, and session-only folder focus.
 
 <div align="center">
-  <h3>Created by <a href="https://github.com/gabrielbacha">Gabriel Bacha</a></h3>
+  <h3>Made by <a href="https://mindfulapps.xyz/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header">Mindful Apps</a></h3>
   <p>
-    <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit gabrielbacha.com</strong></a>
+    <a href="https://mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Plugin page</strong></a>
     &nbsp;·&nbsp;
-    <a href="https://www.mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit Mindful Apps</strong></a>
-    &nbsp;·&nbsp;
-    <a href="https://obsidian.md/plugins?search=Gabriel%20Bacha"><strong>Explore more Obsidian plugins</strong></a>
+    <a href="https://mindfulapps.xyz/obsidian/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>More Obsidian plugins</strong></a>
     &nbsp;·&nbsp;
     <a href="https://github.com/gabrielbacha/Obsidian-Folder-Toolkit/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
   </p>
@@ -112,13 +110,11 @@ Folder Toolkit is MIT licensed. Its independently implemented feature set was in
 ---
 
 <div align="center">
-  <h3>Created by <a href="https://github.com/gabrielbacha">Gabriel Bacha</a></h3>
+  <h3>Made by <a href="https://mindfulapps.xyz/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_footer">Mindful Apps</a></h3>
   <p>
-    <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit gabrielbacha.com</strong></a>
+    <a href="https://mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_footer"><strong>Plugin page</strong></a>
     &nbsp;·&nbsp;
-    <a href="https://www.mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit Mindful Apps</strong></a>
-    &nbsp;·&nbsp;
-    <a href="https://obsidian.md/plugins?search=Gabriel%20Bacha"><strong>Explore more Obsidian plugins</strong></a>
+    <a href="https://mindfulapps.xyz/obsidian/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_footer"><strong>More Obsidian plugins</strong></a>
     &nbsp;·&nbsp;
     <a href="https://github.com/gabrielbacha/Obsidian-Folder-Toolkit/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
   </p>
