@@ -5,8 +5,8 @@ describe('external links', () => {
   it('uses the exact visible labels and copy', () => {
     expect(ABOUT_AND_FEEDBACK).toEqual({
       heading: 'About and feedback',
-      name: 'Folder Toolkit by Gabriel Bacha',
-      description: 'Explore more software, tools, and ideas at gabrielbacha.com.',
+      name: 'Folder Toolkit by Mindful Apps',
+      description: 'Explore more tools at mindfulapps.xyz.',
       websiteLabel: 'Visit website',
       morePluginsLabel: 'More plugins',
       featureRequestLabel: 'Request a feature',
@@ -15,12 +15,12 @@ describe('external links', () => {
   });
 
   it('uses the exact tracked website destination', () => {
-    expect(WEBSITE_URL).toBe('https://www.gabrielbacha.com/?utm_source=obsidian_app&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=folder_toolkit_settings');
+    expect(WEBSITE_URL).toBe('https://mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_app&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=folder_toolkit_settings');
   });
 
   it('uses preselected GitHub issue forms', () => {
     expect(FEATURE_REQUEST_URL).toBe('https://github.com/gabrielbacha/Obsidian-Folder-Toolkit/issues/new?template=feature_request.yml');
-    expect(MORE_PLUGINS_URL).toBe('https://obsidian.md/plugins?search=Gabriel%20Bacha');
+    expect(MORE_PLUGINS_URL).toBe('https://mindfulapps.xyz/obsidian/?utm_source=obsidian_app&utm_medium=referral&utm_campaign=obsidian_assets');
     expect(BUG_REPORT_URL).toBe('https://github.com/gabrielbacha/Obsidian-Folder-Toolkit/issues/new?template=bug_report.yml');
   });
 });
