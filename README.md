@@ -7,6 +7,8 @@ Folder Toolkit makes Obsidian's file explorer easier to scan and temporarily sim
   <p>
     <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit gabrielbacha.com</strong></a>
     &nbsp;·&nbsp;
+    <a href="https://www.mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit Mindful Apps</strong></a>
+    &nbsp;·&nbsp;
     <a href="https://obsidian.md/plugins?search=Gabriel%20Bacha"><strong>Explore more Obsidian plugins</strong></a>
     &nbsp;·&nbsp;
     <a href="https://github.com/gabrielbacha/Obsidian-Folder-Toolkit/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
@@ -113,6 +115,8 @@ Folder Toolkit is MIT licensed. Its independently implemented feature set was in
   <h3>Created by <a href="https://github.com/gabrielbacha">Gabriel Bacha</a></h3>
   <p>
     <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit gabrielbacha.com</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://www.mindfulapps.xyz/folder-toolkit/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=folder_toolkit_readme_header"><strong>Visit Mindful Apps</strong></a>
     &nbsp;·&nbsp;
     <a href="https://obsidian.md/plugins?search=Gabriel%20Bacha"><strong>Explore more Obsidian plugins</strong></a>
     &nbsp;·&nbsp;
