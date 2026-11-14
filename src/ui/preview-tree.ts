@@ -25,6 +25,7 @@ const PREVIEW_STYLE_PROPERTIES = [
 	'--ft-preview-text-light', '--ft-preview-text-dark', '--ft-preview-text-strength',
 	'--ft-preview-background', '--ft-preview-background-strength',
 	'--ft-preview-border', '--ft-preview-border-strength', '--ft-preview-border-width',
+	'--ft-preview-shading-strength',
 ] as const;
 
 function parentPath(path: string): string {
@@ -151,6 +152,7 @@ export function stylePreviewTree(tree: PreviewTree, baseSettings: FolderToolkitS
 			el.style.setProperty('--ft-preview-border', border.color.hex);
 			if (border.color.strength !== undefined) el.style.setProperty('--ft-preview-border-strength', `${border.color.strength}%`);
 			el.style.setProperty('--ft-preview-border-width', presentation.borderWidth);
+			if (border.shading && border.shadingStrength !== undefined) el.style.setProperty('--ft-preview-shading-strength', `${border.shadingStrength}%`);
 		}
 	}
 }

@@ -70,6 +70,7 @@ function normalizeBorder(value: unknown, paletteLength: number): BorderRule | un
 		color,
 		thickness: normalizeThickness(value.thickness),
 		shading: value.shading === true,
+		...(value.shadingStrength === undefined ? {} : { shadingStrength: normalizeStrength(value.shadingStrength) }),
 	};
 }
 
@@ -87,6 +88,8 @@ function normalizeDescendants(value: unknown): DescendantRule | undefined {
 		style: value.style === 'box' || value.style === 'rail' ? value.style : 'rail',
 		thickness: normalizeThickness(value.thickness),
 		shading: value.shading === true,
+		...(value.borderStrength === undefined ? {} : { borderStrength: normalizeStrength(value.borderStrength) }),
+		...(value.shadingStrength === undefined ? {} : { shadingStrength: normalizeStrength(value.shadingStrength) }),
 	};
 }
 

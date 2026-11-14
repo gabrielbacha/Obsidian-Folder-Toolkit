@@ -17,6 +17,7 @@ const MANAGED_CLASSES = [
 const MANAGED_PROPERTIES = [
 	'--ft-text-light', '--ft-text-dark', '--ft-background', '--ft-border', '--ft-border-width',
 	'--ft-text-strength', '--ft-background-strength', '--ft-background-hover-strength', '--ft-border-strength',
+	'--ft-shading-strength',
 ] as const;
 
 function isHtmlElement(element: Element): element is HTMLElement {
@@ -147,6 +148,8 @@ export class ExplorerManager {
 			syncStyle(row.style, '--ft-border-width', presentation.borderWidth);
 
 			syncClass(row, 'ft-border-shaded', presentation.shaded);
+			const shadingStrength = appearance.border.shadingStrength;
+			syncStyle(row.style, '--ft-shading-strength', presentation.shaded && shadingStrength !== undefined ? `${shadingStrength}%` : null);
 		} else {
 			syncClass(row, 'ft-border-box', false);
 			syncClass(row, 'ft-border-rail', false);
@@ -154,6 +157,7 @@ export class ExplorerManager {
 			syncStyle(row.style, '--ft-border', null);
 			syncStyle(row.style, '--ft-border-width', null);
 			syncStyle(row.style, '--ft-border-strength', null);
+			syncStyle(row.style, '--ft-shading-strength', null);
 		}
 
 		syncClass(row, 'ft-permanent-hidden', !settings.showHiddenItems && hidden(path) !== null);

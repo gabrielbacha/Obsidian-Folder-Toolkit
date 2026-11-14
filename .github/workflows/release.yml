@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (must match manifest.json). The tag is created on the selected branch.
+        required: true
 
 permissions:
   contents: write
@@ -13,6 +18,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,7 +28,7 @@ jobs:
           cache: npm
       - name: Verify release version
         run: |
-          node -e "const m=require('./manifest.json'); const p=require('./package.json'); if (m.version !== p.version || m.version !== process.env.GITHUB_REF_NAME) process.exit(1)"
+          node -e "const m=require('./manifest.json'); const p=require('./package.json'); if (m.version !== p.version || m.version !== process.env.RELEASE_VERSION) process.exit(1)"
       - run: npm ci
       - run: npm run check
       - name: Attest build provenance
@@ -34,8 +41,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
+          gh release create "$RELEASE_VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_VERSION" \
             --notes "More software, tools, and ideas: [gabrielbacha.com](https://www.gabrielbacha.com/?utm_source=github&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=folder_toolkit_release)" \
             --generate-notes \
             main.js manifest.json styles.css
