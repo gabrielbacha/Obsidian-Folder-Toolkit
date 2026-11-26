@@ -123,7 +123,6 @@ export class ConditionalRuleModal extends Modal {
 		this.refreshDuplicate = () => {};
 		this.contentEl.addClass('ft-rule-editor');
 		this.renderMatch();
-		this.renderPreview();
 		this.renderText();
 		this.renderBackground();
 		this.renderBorder();
@@ -136,37 +135,36 @@ export class ConditionalRuleModal extends Modal {
 		return new SettingGroup(this.contentEl).setHeading(heading);
 	}
 
+	/** One sentence-like row: [Folders] [named exactly] [pattern], with the preview right under it. */
 	private renderMatch(): void {
 		const draft = this.draft;
-		this.group('Match')
-			.addSetting((setting) => void setting.setName('Apply to').addDropdown((dropdown) => dropdown
-				.addOptions(TARGET_LABELS)
-				.setValue(draft.target)
-				.onChange((value) => { draft.target = value as ConditionalTarget; this.changed(true); })))
-			.addSetting((setting) => void setting.setName('Name').addDropdown((dropdown) => dropdown
-				.addOptions(MATCH_LABELS)
-				.setValue(draft.match)
-				.onChange((value) => { draft.match = value as ConditionalMatch; this.changed(true); })))
-			.addSetting((setting) => void setting
-				.setName('Pattern')
-				.setDesc('Letter case does not matter.')
-				.addText((text) => {
-					text.setPlaceholder('__system').setValue(draft.pattern).onChange((value) => {
-						draft.pattern = value;
-						this.changed(false);
-					});
-					text.inputEl.setAttribute('aria-label', 'Name pattern');
-					text.inputEl.spellcheck = false;
-					text.inputEl.addEventListener('keydown', (event) => {
-						if (event.key !== 'Enter') return;
-						event.preventDefault();
-						void this.save();
-					});
-				}));
-	}
-
-	private renderPreview(): void {
-		this.group('Preview').addSetting((setting) => {
+		const group = this.group('Match').addSetting((setting) => {
+			setting.setClass('ft-rule-match').setDesc('Letter case does not matter.');
+			setting.addDropdown((dropdown) => {
+				dropdown.addOptions(TARGET_LABELS).setValue(draft.target)
+					.onChange((value) => { draft.target = value as ConditionalTarget; this.changed(true); });
+				dropdown.selectEl.setAttribute('aria-label', 'Apply to');
+			});
+			setting.addDropdown((dropdown) => {
+				dropdown.addOptions(MATCH_LABELS).setValue(draft.match)
+					.onChange((value) => { draft.match = value as ConditionalMatch; this.changed(true); });
+				dropdown.selectEl.setAttribute('aria-label', 'Name match');
+			});
+			setting.addText((text) => {
+				text.setPlaceholder('Name').setValue(draft.pattern).onChange((value) => {
+					draft.pattern = value;
+					this.changed(false);
+				});
+				text.inputEl.setAttribute('aria-label', 'Name pattern');
+				text.inputEl.spellcheck = false;
+				text.inputEl.addEventListener('keydown', (event) => {
+					if (event.key !== 'Enter') return;
+					event.preventDefault();
+					void this.save();
+				});
+			});
+		});
+		group.addSetting((setting) => {
 			const host = wideRow(setting, 'ft-rule-sample');
 			const files = this.toolkit.app.vault.getAllLoadedFiles?.() ?? [];
 			this.refreshPreview = () => {
@@ -198,17 +196,16 @@ export class ConditionalRuleModal extends Modal {
 
 	private renderText(): void {
 		const draft = this.draft;
-		const group = this.group('Text').addSetting((setting) => void setting.setName('Text color').addToggle((toggle) => toggle
-			.setValue(isFontEnabled(draft))
-			.onChange((value) => { draft.fontEnabled = value; this.changed(true); })));
+		const group = this.group('Text').addSetting((setting) => {
+			setting.setName('Text color');
+			styleToggle(setting, 'bold', 'Bold', draft.bold === true, (value) => { draft.bold = value; this.changed(false); });
+			styleToggle(setting, 'strikethrough', 'Strikethrough', draft.strikethrough === true, (value) => { draft.strikethrough = value; this.changed(false); });
+			setting.addToggle((toggle) => toggle
+				.setTooltip('Text color')
+				.setValue(isFontEnabled(draft))
+				.onChange((value) => { draft.fontEnabled = value; this.changed(true); }));
+		});
 		if (isFontEnabled(draft)) this.colorRow(group, draft.color, DEFAULT_APPEARANCE_STRENGTH.text, (choice) => { draft.color = choice; }, true);
-		group
-			.addSetting((setting) => void setting.setName('Bold').addToggle((toggle) => toggle
-				.setValue(draft.bold === true)
-				.onChange((value) => { draft.bold = value; this.changed(false); })))
-			.addSetting((setting) => void setting.setName('Strikethrough').addToggle((toggle) => toggle
-				.setValue(draft.strikethrough === true)
-				.onChange((value) => { draft.strikethrough = value; this.changed(false); })));
 	}
 
 	private renderBackground(): void {
@@ -227,24 +224,33 @@ export class ConditionalRuleModal extends Modal {
 
 	private renderBorder(): void {
 		const draft = this.draft;
-		const group = this.group('Border').addSetting((setting) => void setting.setName('Border').addToggle((toggle) => toggle
-			.setValue(isBorderEnabled(draft))
-			.onChange((value) => {
-				draft.borderEnabled = value;
-				if (value && !draft.border) draft.border = structuredClone(DEFAULT_BORDER);
-				this.changed(true);
-			})));
-		if (!isBorderEnabled(draft) || !draft.border) return;
+		const enabled = isBorderEnabled(draft) && draft.border !== undefined;
+		const group = this.group('Border').addSetting((setting) => {
+			setting.setName('Border');
+			const border = draft.border;
+			if (enabled && border) {
+				setting.addDropdown((dropdown) => {
+					dropdown.addOptions({ box: 'Box', rail: 'Rail' }).setValue(border.style)
+						.onChange((value) => { draft.border = { ...border, style: value === 'rail' ? 'rail' : 'box' }; this.changed(true); });
+					dropdown.selectEl.setAttribute('aria-label', 'Border shape');
+				});
+				setting.addDropdown((dropdown) => {
+					dropdown.addOptions({ thin: 'Thin', medium: 'Medium', thick: 'Thick' }).setValue(border.thickness ?? 'thin')
+						.onChange((value) => { draft.border = { ...border, thickness: value as BorderRule['thickness'] }; this.changed(true); });
+					dropdown.selectEl.setAttribute('aria-label', 'Border thickness');
+				});
+			}
+			setting.addToggle((toggle) => toggle
+				.setTooltip('Border')
+				.setValue(isBorderEnabled(draft))
+				.onChange((value) => {
+					draft.borderEnabled = value;
+					if (value && !draft.border) draft.border = structuredClone(DEFAULT_BORDER);
+					this.changed(true);
+				}));
+		});
+		if (!enabled || !draft.border) return;
 		const border = draft.border;
-		group
-			.addSetting((setting) => void setting.setName('Shape').addDropdown((dropdown) => dropdown
-				.addOptions({ box: 'Rounded box', rail: 'Vertical rail' })
-				.setValue(border.style)
-				.onChange((value) => { draft.border = { ...border, style: value === 'rail' ? 'rail' : 'box' }; this.changed(true); })))
-			.addSetting((setting) => void setting.setName('Thickness').addDropdown((dropdown) => dropdown
-				.addOptions({ thin: 'Thin', medium: 'Medium', thick: 'Thick' })
-				.setValue(border.thickness ?? 'thin')
-				.onChange((value) => { draft.border = { ...border, thickness: value as BorderRule['thickness'] }; this.changed(true); })));
 		const strength = border.style === 'box' ? DEFAULT_APPEARANCE_STRENGTH.box : DEFAULT_APPEARANCE_STRENGTH.rail;
 		this.colorRow(group, border.color, strength, (choice) => { draft.border = { ...border, color: choice }; });
 	}
@@ -252,28 +258,24 @@ export class ConditionalRuleModal extends Modal {
 	private renderRuleActions(): void {
 		const rules = this.toolkit.settings.conditionalFormats;
 		const index = rules.findIndex((rule) => rule.id === this.ruleId);
-		this.group('Rule')
-			.addSetting((setting) => void setting
-				.setName('Position')
-				.setDesc(`Rule ${index + 1} of ${rules.length}. When rules overlap, the lower rule wins.`)
+		this.group('Rule').addSetting((setting) => {
+			setting
+				.setName(`Rule ${index + 1} of ${rules.length}`)
+				.setDesc('When rules overlap, the lower rule wins.')
 				.addExtraButton((button) => button.setIcon('arrow-up').setTooltip('Move up').setDisabled(index <= 0)
 					.onClick(() => { void this.toolkit.moveConditionalFormat(this.ruleId, -1).then(() => this.render()); }))
 				.addExtraButton((button) => button.setIcon('arrow-down').setTooltip('Move down').setDisabled(index < 0 || index >= rules.length - 1)
-					.onClick(() => { void this.toolkit.moveConditionalFormat(this.ruleId, 1).then(() => this.render()); })))
-			.addSetting((setting) => {
-				setting.setName('Duplicate rule').addButton((button) => {
-					button.setButtonText('Duplicate').onClick(() => { void this.duplicate(); });
+					.onClick(() => { void this.toolkit.moveConditionalFormat(this.ruleId, 1).then(() => this.render()); }))
+				.addExtraButton((button) => {
+					button.setIcon('copy').onClick(() => { void this.duplicate(); });
 					this.refreshDuplicate = () => {
 						const blocked = this.dirty();
-						setting.setDesc(blocked ? 'Save or cancel your changes first.' : 'Add a copy right below this rule.');
-						button.setDisabled(blocked);
+						button.setTooltip(blocked ? 'Save or cancel your changes to duplicate' : 'Duplicate rule').setDisabled(blocked);
 					};
-				});
-				this.refreshDuplicate();
-			})
-			.addSetting((setting) => void setting
-				.setName('Delete rule')
-				.addButton((button) => button.setButtonText('Delete').setDestructive().onClick(() => this.confirmDelete())));
+					this.refreshDuplicate();
+				})
+				.addExtraButton((button) => button.setIcon('trash-2').setTooltip('Delete rule').onClick(() => this.confirmDelete()));
+		});
 	}
 
 	private renderFooter(): void {
@@ -331,6 +333,20 @@ export class ConditionalRuleModal extends Modal {
 }
 
 /** Gives a setting row a full-width area below its name for controls that need the space. */
+/** An icon button that stays pressed while its style is on, so related styles share one row. */
+function styleToggle(setting: Setting, icon: string, label: string, value: boolean, onChange: (value: boolean) => void): void {
+	setting.addExtraButton((button) => {
+		let pressed = value;
+		const paint = () => {
+			button.extraSettingsEl.toggleClass('is-active', pressed);
+			button.extraSettingsEl.setAttribute('aria-pressed', String(pressed));
+		};
+		button.setIcon(icon).setTooltip(label).onClick(() => { pressed = !pressed; paint(); onChange(pressed); });
+		button.extraSettingsEl.addClass('ft-style-toggle');
+		paint();
+	});
+}
+
 export function wideRow(setting: Setting, className: string): HTMLElement {
 	setting.settingEl.addClass('ft-setting-wide');
 	return setting.settingEl.createDiv(`ft-setting-wide__body ${className}`);

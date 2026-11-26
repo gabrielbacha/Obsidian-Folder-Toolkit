@@ -42,6 +42,7 @@ function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
 const headings = (modal: ConditionalRuleModal) => [...modal.contentEl.querySelectorAll(".setting-group > .setting-item-heading")].map((heading) => heading.textContent);
 const group = (modal: ConditionalRuleModal, heading: string) => [...modal.contentEl.querySelectorAll<HTMLElement>(".setting-group")].find((candidate) => candidate.querySelector(".setting-item-heading")?.textContent === heading)!;
 const row = (modal: ConditionalRuleModal, heading: string, name: string) => [...group(modal, heading).querySelectorAll<HTMLElement>(".setting-items > .setting-item")].find((candidate) => candidate.querySelector(".setting-item-name")?.textContent === name)!;
+const pressed = (modal: ConditionalRuleModal, label: string) => modal.contentEl.querySelector<HTMLElement>(`.ft-style-toggle[aria-label="${label}"]`)!;
 const footerButton = (modal: ConditionalRuleModal, text: string) => [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-rule-editor__footer button")].find((button) => button.textContent === text)!;
 
 describe("name rule editor", () => {
@@ -60,22 +61,26 @@ describe("name rule editor", () => {
 	it("groups the controls and shows color controls only for styles that are on", () => {
 		const { open, toolkit, settings } = harness();
 		const modal = open();
-		expect(headings(modal)).toEqual(["Match", "Preview", "Text", "Background", "Border", "Rule"]);
+		expect(headings(modal)).toEqual(["Match", "Text", "Background", "Border", "Rule"]);
+		const match = group(modal, "Match").querySelector(".ft-rule-match")!;
+		expect([...match.querySelectorAll("select, input")].map((control) => control.getAttribute("aria-label"))).toEqual(["Apply to", "Name match", "Name pattern"]);
 		expect(group(modal, "Background").querySelectorAll(".setting-items > .setting-item")).toHaveLength(1);
 		expect(row(modal, "Text", "Color")).toBeDefined();
 		row(modal, "Background", "Background color").querySelector<HTMLElement>(".checkbox-container")!.click();
 		expect(row(modal, "Background", "Color").querySelector(".ft-color-controls")).not.toBeNull();
 		expect(toolkit.previewConditionalFormat.mock.lastCall?.[0]).toMatchObject({ backgroundEnabled: true, backgroundColor: { hex: "#A8ADB5" } });
 		expect(settings.conditionalFormats[0]?.backgroundEnabled).toBeUndefined();
+		expect(row(modal, "Border", "Border").querySelectorAll("select")).toHaveLength(0);
 		row(modal, "Border", "Border").querySelector<HTMLElement>(".checkbox-container")!.click();
-		expect(["Border", "Shape", "Thickness", "Color"].every((name) => row(modal, "Border", name))).toBe(true);
+		expect([...row(modal, "Border", "Border").querySelectorAll("select")].map((select) => select.getAttribute("aria-label"))).toEqual(["Border shape", "Border thickness"]);
+		expect(row(modal, "Border", "Color")).toBeDefined();
 	});
 
 	it("saves only with Save and then closes", async () => {
 		const { open, toolkit, onClose } = harness();
 		const modal = open();
 		expect(footerButton(modal, "Save").disabled).toBe(true);
-		row(modal, "Text", "Bold").querySelector<HTMLElement>(".checkbox-container")!.click();
+		pressed(modal, "Bold").click();
 		expect(modal.contentEl.querySelector(".ft-rule-editor__status")?.textContent).toBe("Unsaved changes");
 		expect(footerButton(modal, "Save").disabled).toBe(false);
 		footerButton(modal, "Save").click();
@@ -152,26 +157,26 @@ describe("name rule editor", () => {
 	it("moves, duplicates and deletes a saved rule", async () => {
 		const { open, toolkit, settings, onClose } = harness();
 		const modal = open();
-		const position = row(modal, "Rule", "Position");
-		expect(position.querySelector(".setting-item-description")?.textContent).toBe("Rule 1 of 2. When rules overlap, the lower rule wins.");
+		const position = row(modal, "Rule", "Rule 1 of 2");
+		expect(position.querySelector(".setting-item-description")?.textContent).toBe("When rules overlap, the lower rule wins.");
 		expect(position.querySelector('[aria-label="Move up"]')?.classList.contains("is-disabled")).toBe(true);
 		position.querySelector<HTMLElement>('[aria-label="Move down"]')!.click();
 		expect(toolkit.moveConditionalFormat).toHaveBeenCalledWith("one", 1);
 
-		row(modal, "Text", "Bold").querySelector<HTMLElement>(".checkbox-container")!.click();
-		const duplicate = row(modal, "Rule", "Duplicate rule").querySelector("button")!;
-		expect(duplicate.disabled).toBe(true);
-		row(modal, "Text", "Bold").querySelector<HTMLElement>(".checkbox-container")!.click();
-		const ready = row(modal, "Rule", "Duplicate rule").querySelector("button")!;
-		expect(ready.disabled).toBe(false);
-		ready.click();
+		pressed(modal, "Bold").click();
+		expect(pressed(modal, "Bold").getAttribute("aria-pressed")).toBe("true");
+		const duplicate = () => row(modal, "Rule", "Rule 1 of 2").querySelector<HTMLElement>('[data-icon="copy"]')!;
+		expect(duplicate().classList.contains("is-disabled")).toBe(true);
+		pressed(modal, "Bold").click();
+		expect(duplicate().classList.contains("is-disabled")).toBe(false);
+		duplicate().click();
 		await Promise.resolve(); await Promise.resolve();
 		expect(settings.conditionalFormats.map((candidate) => candidate.id)).toEqual(["one", "copy", "two"]);
 		expect(onClose).toHaveBeenCalledOnce();
 
 		const confirm = vi.spyOn(ConfirmRemoveModal.prototype, "open").mockImplementation(() => {});
 		const again = open("two");
-		row(again, "Rule", "Delete rule").querySelector("button")!.click();
+		row(again, "Rule", "Rule 3 of 3").querySelector<HTMLElement>('[aria-label="Delete rule"]')!.click();
 		expect(confirm).toHaveBeenCalledOnce();
 		expect(toolkit.removeConditionalFormat).not.toHaveBeenCalled();
 	});

@@ -103,6 +103,7 @@ class ToggleComponent {
 	}
 	onChange(listener: Listener<boolean>): this { this.listener = listener; return this; }
 	setDisabled(disabled: boolean): this { this.input.disabled = disabled; return this; }
+	setTooltip(text: string): this { this.toggleEl.setAttribute('aria-label', text); return this; }
 }
 
 class DropdownComponent {

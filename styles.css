@@ -1245,3 +1245,23 @@ button.ft-palette-option.is-selected {
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 }
+
+/* Rule editor: the match row reads as one sentence, and related styles share a row. */
+.ft-rule-match .setting-item-control {
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+}
+
+.ft-rule-match .setting-item-control input[type="text"] {
+	flex: 1 1 10em;
+	min-width: 8em;
+}
+
+.ft-rule-match .setting-item-info {
+	flex: 0 1 auto;
+}
+
+.extra-setting-button.ft-style-toggle.is-active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
