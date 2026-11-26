@@ -157,6 +157,8 @@ describe('open note tabs', () => {
 		expect(header.classList.contains('ft-tab-border')).toBe(true);
 		expect(header.style.getPropertyValue('--ft-tab-background')).toBe('#3498DB');
 		expect(header.style.getPropertyValue('--ft-tab-border')).toBe('#3498DB');
+		// A border borrowed from the background keeps the stylesheet's strong default.
+		expect(header.style.getPropertyValue('--ft-tab-border-strength')).toBe('');
 		manager.stop();
 		workspace.remove();
 	});

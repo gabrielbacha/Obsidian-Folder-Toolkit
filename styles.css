@@ -140,24 +140,34 @@ body.theme-dark .workspace-tab-header.ft-tab-has-text .workspace-tab-header-inne
 	color: color-mix(in srgb, var(--ft-tab-text-dark) var(--ft-tab-text-strength, var(--ft-default-text-strength)), var(--text-normal)) !important;
 }
 
-.workspace-tab-header.ft-tab-background .workspace-tab-header-inner {
-	background-color: color-mix(in srgb, var(--ft-tab-background) var(--ft-tab-strength, 18%), transparent);
-	border-radius: var(--radius-s);
+/*
+ * The active tab is Obsidian's own shape: the header background plus two curved corners that
+ * read --tab-background-active and --tab-outline-color. Setting those variables colors the
+ * whole shape. Inactive tabs have no shape, so their inner box is tinted like Obsidian's hover.
+ */
+.workspace-tab-header.ft-tab-background.is-active {
+	--tab-background-active: color-mix(in srgb, var(--ft-tab-background) var(--ft-tab-hover-strength, 26%), var(--background-primary));
 }
 
-.workspace-tab-header.ft-tab-background:hover .workspace-tab-header-inner,
-.workspace-tab-header.ft-tab-background.is-active .workspace-tab-header-inner {
+.workspace-tab-header.ft-tab-border.is-active {
+	--tab-outline-color: color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-hover-strength, 100%), transparent);
+	--tab-outline-width: 1.5px;
+}
+
+.workspace-tab-header.ft-tab-background:not(.is-active) .workspace-tab-header-inner {
+	background-color: color-mix(in srgb, var(--ft-tab-background) var(--ft-tab-strength, 18%), transparent);
+}
+
+.workspace-tab-header.ft-tab-background:not(.is-active):hover .workspace-tab-header-inner {
 	background-color: color-mix(in srgb, var(--ft-tab-background) var(--ft-tab-hover-strength, 26%), transparent);
 }
 
-.workspace-tab-header.ft-tab-border .workspace-tab-header-inner {
-	border-radius: var(--radius-s);
-	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-strength, 72%), transparent);
+.workspace-tab-header.ft-tab-border:not(.is-active) .workspace-tab-header-inner {
+	box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-strength, 72%), transparent);
 }
 
-.workspace-tab-header.ft-tab-border:hover .workspace-tab-header-inner,
-.workspace-tab-header.ft-tab-border.is-active .workspace-tab-header-inner {
-	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-hover-strength, 100%), transparent);
+.workspace-tab-header.ft-tab-border:not(.is-active):hover .workspace-tab-header-inner {
+	box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-hover-strength, 100%), transparent);
 }
 
 .modal:has(.ft-appearance-modal) {

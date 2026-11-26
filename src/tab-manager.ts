@@ -100,7 +100,9 @@ export class TabManager {
 				const useBackground = accents.background !== null && (style === 'background' || style === 'both');
 				// The border uses the item's border color, or its background color when it has no border.
 				const borderColor = accents.border ?? accents.background;
-				const borderStrength = accents.border !== null ? accents.borderStrength : accents.backgroundStrength;
+				// A border borrowed from a light background tint would be nearly invisible, so it uses the
+				// stylesheet's strong default instead of the background strength.
+				const borderStrength = accents.border !== null ? accents.borderStrength : null;
 				const useBorder = borderColor !== null && (style === 'border' || style === 'both');
 
 				syncClass(header, 'ft-tab-has-text', accents.text !== null);
@@ -111,9 +113,8 @@ export class TabManager {
 				syncStyle(header.style, '--ft-tab-text-strength', accents.textStrength === null ? null : `${accents.textStrength}%`);
 				syncStyle(header.style, '--ft-tab-background', useBackground ? accents.background : null);
 				syncStyle(header.style, '--ft-tab-border', useBorder ? borderColor : null);
-				const hoverStep = accents.border !== null ? 20 : 8;
 				syncStyle(header.style, '--ft-tab-border-strength', useBorder && borderStrength !== null ? `${borderStrength}%` : null);
-				syncStyle(header.style, '--ft-tab-border-hover-strength', useBorder && borderStrength !== null ? `${Math.min(100, borderStrength + hoverStep)}%` : null);
+				syncStyle(header.style, '--ft-tab-border-hover-strength', useBorder && borderStrength !== null ? `${Math.min(100, borderStrength + 20)}%` : null);
 				syncStyle(header.style, '--ft-tab-strength', accents.backgroundStrength === null ? null : `${accents.backgroundStrength}%`);
 				syncStyle(header.style, '--ft-tab-hover-strength', accents.backgroundStrength === null ? null : `${Math.min(100, accents.backgroundStrength + 8)}%`);
 			});

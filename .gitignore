@@ -23,3 +23,6 @@ data.json
 
 # Coverage
 coverage/
+
+# Folder Toolkit settings recovery receipts
+data.json.recovery-*
