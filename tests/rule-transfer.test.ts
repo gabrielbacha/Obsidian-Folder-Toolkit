@@ -92,7 +92,7 @@ describe('copy and paste', () => {
 
 function plugin(rules: Record<string, AppearanceRule>, existing: string[]) {
 	const settings: FolderToolkitSettings = {
-		schemaVersion: 6, paletteTemplateId: 'default', tabStyle: 'off', appearanceRules: rules,
+		schemaVersion: 6, paletteTemplateId: 'default', tabStyle: 'off', tabStyleWhenOn: 'both', savedPresets: [], appearanceRules: rules,
 		conditionalFormats: [], hiddenPaths: [], showHiddenItems: false, nestedVaults: false, vaultMarker: 'off',
 	};
 	const files = new Set(existing);

@@ -2,7 +2,8 @@ import type { App, WorkspaceLeaf } from 'obsidian';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as resolver from '../src/appearance-resolver';
 import { DEFAULT_SETTINGS } from '../src/types';
-import { ExplorerManager } from '../src/explorer-manager';
+import { ExplorerManager, rowInset } from '../src/explorer-manager';
+import { syncStyle } from '../src/dom-sync';
 import { AppearancePreviewStore } from '../src/appearance-preview';
 import type { FolderToolkitSettings } from '../src/types';
 
@@ -71,6 +72,8 @@ describe('ExplorerManager', () => {
 			schemaVersion: 1,
 			paletteTemplateId: 'default',
 			tabStyle: 'off',
+			tabStyleWhenOn: 'both',
+			savedPresets: [],
 			appearanceRules: {
 				A: {
 					text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true },
@@ -106,6 +109,32 @@ describe('ExplorerManager', () => {
 		expect(rowFor('A/B/note.md').style.getPropertyValue('--ft-text-light')).not.toBe('');
 		manager.stop();
 		expect(rowFor('A/B').hasClass('ft-focus-root')).toBe(false);
+	});
+
+	it('starts row paint at the indent that Obsidian moves with an inline margin', () => {
+		const rowFor = (path: string) => root.querySelector<HTMLElement>(`[data-path="${path}"]`)!.parentElement!;
+		const title = root.querySelector<HTMLElement>('[data-path="A/B/note.md"]')!;
+		syncStyle(title.style, 'margin-inline-start', '-72px');
+		const top = root.querySelector<HTMLElement>('[data-path="A"]')!;
+		syncStyle(top.style, 'margin-inline-start', '0px');
+		const manager = new ExplorerManager(mockApp(root), () => settings, () => null);
+		manager.syncLeaves();
+		manager.reconcile();
+		expect(rowFor('A/B/note.md').style.getPropertyValue('--ft-row-inset')).toBe('72px');
+		expect(rowFor('A').style.getPropertyValue('--ft-row-inset')).toBe('');
+		expect(rowFor('A/B').style.getPropertyValue('--ft-row-inset')).toBe('');
+		manager.stop();
+		expect(rowFor('A/B/note.md').style.getPropertyValue('--ft-row-inset')).toBe('');
+	});
+
+	it('reads the row inset from the inline style', () => {
+		const title = document.createElement('div');
+		expect(rowInset(null)).toBe(0);
+		expect(rowInset(title)).toBe(0);
+		syncStyle(title.style, 'margin-inline-start', '-48px');
+		expect(rowInset(title)).toBe(48);
+		syncStyle(title.style, 'margin-inline-start', '12px');
+		expect(rowInset(title)).toBe(0);
 	});
 
 	it('marks folders that are vaults and reports shown folders for probing', () => {

@@ -12,14 +12,17 @@ function rule(id: string, pattern: string): ConditionalFormatRule {
 }
 
 function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
-	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false, nestedVaults: false, vaultMarker: 'off' };
+	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", tabStyleWhenOn: "both", savedPresets: [], appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false, nestedVaults: false, vaultMarker: 'off' };
 	const removeConditionalFormat = vi.fn().mockResolvedValue(undefined);
 	const addConditionalFormat = vi.fn<() => Promise<string>>();
 	const updateConditionalFormat = vi.fn().mockResolvedValue(undefined);
 	const previewConditionalFormat = vi.fn();
 	const clearConditionalFormatPreview = vi.fn();
+	const duplicateConditionalFormat = vi.fn<(id: string) => Promise<string | null>>().mockResolvedValue("copy");
+	const loadedFiles: Array<{ path: string; name: string }> = [];
 	const toolkit = Object.assign(Object.create(FolderToolkitPlugin.prototype), {
-		app: {}, settings,
+		app: { vault: { getAllLoadedFiles: () => loadedFiles } }, settings,
+		duplicateConditionalFormat,
 		addConditionalFormat, updateConditionalFormat,
 		previewConditionalFormat, clearConditionalFormatPreview,
 		moveConditionalFormat: vi.fn().mockResolvedValue(undefined), removeConditionalFormat,
@@ -36,7 +39,7 @@ function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
 		const cleanup = conditionalRenderer.renderConditionalFormats(setting);
 		return { settingEl, cleanup };
 	};
-	return { toolkit, tab, update, render, removeConditionalFormat, addConditionalFormat, updateConditionalFormat, previewConditionalFormat, clearConditionalFormatPreview, settings };
+	return { toolkit, tab, update, render, duplicateConditionalFormat, loadedFiles, removeConditionalFormat, addConditionalFormat, updateConditionalFormat, previewConditionalFormat, clearConditionalFormatPreview, settings };
 }
 
 describe("name-rule settings UI", () => {
@@ -184,11 +187,53 @@ describe("name-rule settings UI", () => {
 		const actions = [...view.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-actions button")];
 		expect(actions[0]?.disabled).toBe(true);
 		expect(actions[1]?.disabled).toBe(true);
-		actions[2]?.click();
+		expect(actions[2]?.classList.contains("ft-conditional-duplicate")).toBe(true);
+		actions[3]?.click();
 		expect(open).toHaveBeenCalledOnce();
 		expect(removeConditionalFormat).not.toHaveBeenCalled();
 		view.cleanup?.();
 		open.mockRestore();
+	});
+
+	it("duplicates a rule and opens the copy for editing", async () => {
+		const { render, duplicateConditionalFormat, update } = harness([rule("one", "__system")]);
+		const view = render();
+		view.settingEl.querySelector<HTMLButtonElement>(".ft-conditional-duplicate")!.click();
+		await Promise.resolve(); await Promise.resolve();
+		expect(duplicateConditionalFormat).toHaveBeenCalledWith("one");
+		expect(update).toHaveBeenCalled();
+		view.cleanup?.();
+		const reopened = render();
+		expect(reopened.settingEl.querySelectorAll(".ft-conditional-card.is-expanded")).toHaveLength(0);
+		reopened.cleanup?.();
+	});
+
+	it("previews a rule on matching sample rows and repaints while typing", () => {
+		const { render, loadedFiles } = harness([{ ...rule("one", "Draft"), match: "startsWith", target: "both", backgroundEnabled: true, backgroundColor: { kind: "custom", hex: "#E67E22", strength: 20 } }]);
+		loadedFiles.push({ path: "Draft plan.md", name: "Draft plan.md" }, { path: "Other.md", name: "Other.md" });
+		const collapsed = render();
+		collapsed.settingEl.querySelector<HTMLButtonElement>(".ft-conditional-disclosure")!.click();
+		collapsed.cleanup?.();
+		const view = render();
+		const names = () => [...view.settingEl.querySelectorAll(".ft-conditional-preview .ft-live-preview__name")].map((element) => element.textContent);
+		expect(names()).toEqual(["Draft notes", "Draft notes", "Other note"]);
+		const rows = [...view.settingEl.querySelectorAll<HTMLElement>(".ft-conditional-preview .ft-live-preview__row")];
+		expect(rows[0]?.classList.contains("ft-preview-has-text")).toBe(true);
+		expect(rows[1]?.classList.contains("ft-preview-has-background")).toBe(true);
+		expect(rows[2]?.classList.contains("ft-preview-has-text")).toBe(false);
+		expect(rows[2]?.classList.contains("ft-preview-has-background")).toBe(false);
+		expect(view.settingEl.querySelector(".ft-conditional-preview__matches")?.textContent).toBe("Matches 1 item in this vault: Draft plan.md");
+
+		const pattern = view.settingEl.querySelector<HTMLInputElement>('input[aria-label="Name pattern"]')!;
+		pattern.focus();
+		pattern.value = "Idea";
+		pattern.dispatchEvent(new Event("input"));
+		expect(names()).toEqual(["Idea notes", "Idea notes", "Other note"]);
+		expect(document.activeElement).toBe(pattern);
+		pattern.value = "";
+		pattern.dispatchEvent(new Event("input"));
+		expect(view.settingEl.querySelector(".ft-conditional-preview__hint")?.textContent).toBe("Type a pattern to see a preview.");
+		view.cleanup?.();
 	});
 });
 

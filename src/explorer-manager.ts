@@ -17,8 +17,29 @@ const MANAGED_CLASSES = [
 const MANAGED_PROPERTIES = [
 	'--ft-text-light', '--ft-text-dark', '--ft-background', '--ft-border', '--ft-border-width',
 	'--ft-text-strength', '--ft-background-strength', '--ft-background-hover-strength', '--ft-border-strength',
-	'--ft-shading-strength',
+	'--ft-shading-strength', '--ft-row-inset',
 ] as const;
+
+/**
+ * Obsidian 1.15 stretches each explorer row to the full pane width with an inline negative
+ * `margin-inline-start` and a matching padding. Returns how far the row's own indent is from
+ * the start of that stretched box, so row paint can start at the indent.
+ */
+export function rowInset(title: HTMLElement | null): number {
+	if (!title) return 0;
+	const declared = title.style.getPropertyValue('margin-inline-start')
+		|| /margin-inline-start\s*:\s*([^;!]+)/i.exec(title.getAttribute('style') ?? '')?.[1]
+		|| '';
+	const match = /^\s*(-?\d+(?:\.\d+)?)px\s*$/.exec(declared);
+	const margin = match ? Number(match[1]) : 0;
+	return margin < 0 ? -margin : 0;
+}
+
+function isRowMutation(mutation: MutationRecord): boolean {
+	if (mutation.type === 'childList') return true;
+	const target = mutation.target as Element;
+	return typeof target.matches === 'function' && target.matches('.tree-item-self, [data-path]');
+}
 
 function isHtmlElement(element: Element): element is HTMLElement {
 	return 'style' in element && 'dataset' in element;
@@ -55,8 +76,11 @@ export class ExplorerManager {
 			activeRoots.add(root);
 			if (this.observers.has(root)) continue;
 			const Observer = root.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
-			const observer = new Observer(() => this.reconcileSoon());
-			observer.observe(root, { childList: true, subtree: true });
+			const observer = new Observer((mutations) => {
+				if (mutations.some(isRowMutation)) this.reconcileSoon();
+			});
+			// Row titles carry the indent in their inline style and can be reused for another path.
+			observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'data-path'] });
 			this.observers.set(root, observer);
 		}
 		for (const [root, observer] of this.observers) {
@@ -173,6 +197,9 @@ export class ExplorerManager {
 		syncStyle(row.style, '--ft-text-light', appearance.text?.foregroundLight ?? null);
 		syncStyle(row.style, '--ft-text-dark', appearance.text?.foregroundDark ?? null);
 		syncStyle(row.style, '--ft-text-strength', appearance.text?.strength === undefined ? null : `${appearance.text.strength}%`);
+		const title = row.querySelector<HTMLElement>(':scope > .nav-file-title, :scope > .nav-folder-title');
+		const inset = rowInset(title);
+		syncStyle(row.style, '--ft-row-inset', inset > 0 ? `${inset}px` : null);
 		syncStyle(row.style, '--ft-background', appearance.background?.hex ?? null);
 		const backgroundStrength = appearance.background?.strength;
 		syncStyle(row.style, '--ft-background-strength', backgroundStrength === undefined ? null : `${backgroundStrength}%`);

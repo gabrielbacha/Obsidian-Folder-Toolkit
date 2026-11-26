@@ -8,6 +8,8 @@ function settings(): FolderToolkitSettings {
 		schemaVersion: 1,
 		paletteTemplateId: 'default',
 		tabStyle: 'background',
+		tabStyleWhenOn: 'both',
+		savedPresets: [],
 		appearanceRules: {
 			A: { text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true } },
 		},

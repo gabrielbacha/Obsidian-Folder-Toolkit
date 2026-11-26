@@ -1,12 +1,12 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
 import { resolveAppearance } from './appearance-resolver';
 import { syncClass, syncStyle } from './dom-sync';
-import type { FolderToolkitSettings } from './types';
+import type { AppearanceRule, FolderToolkitSettings } from './types';
 
 const TAB_CLASSES = ['ft-tab-has-text', 'ft-tab-background', 'ft-tab-border'] as const;
 const TAB_PROPERTIES = [
 	'--ft-tab-text', '--ft-tab-background', '--ft-tab-border', '--ft-tab-strength', '--ft-tab-hover-strength',
-	'--ft-tab-text-dark', '--ft-tab-text-strength',
+	'--ft-tab-text-dark', '--ft-tab-text-strength', '--ft-tab-border-strength', '--ft-tab-border-hover-strength',
 ] as const;
 
 export interface TabAccents {
@@ -15,9 +15,36 @@ export interface TabAccents {
 	textStrength: number | null;
 	background: string | null;
 	backgroundStrength: number | null;
+	/** The item's own border color, or null when it has none. */
+	border: string | null;
+	borderStrength: number | null;
+}
+
+const NO_ACCENTS: TabAccents = {
+	text: null, textDark: null, textStrength: null, background: null, backgroundStrength: null, border: null, borderStrength: null,
+};
+
+/** Where the "show on note tabs" choice for `path` comes from. */
+export interface TabVisibility {
+	visible: boolean;
+	/** The path whose rule decides, or null for the default. */
+	origin: string | null;
+}
+
+/** The nearest rule at or above `path` that sets `tabs` decides. Without one, tabs show colors. */
+export function tabVisibility(path: string, rules: Record<string, AppearanceRule>): TabVisibility {
+	let candidate: string | null = path;
+	while (candidate) {
+		const tabs = rules[candidate]?.tabs;
+		if (typeof tabs === 'boolean') return { visible: tabs, origin: candidate };
+		const index = candidate.lastIndexOf('/');
+		candidate = index === -1 ? null : candidate.slice(0, index);
+	}
+	return { visible: true, origin: null };
 }
 
 export function tabAccents(path: string, settings: FolderToolkitSettings): TabAccents {
+	if (!tabVisibility(path, settings.appearanceRules).visible) return NO_ACCENTS;
 	const appearance = resolveAppearance(path, { settings });
 	return {
 		text: appearance.text?.foregroundLight ?? null,
@@ -25,6 +52,8 @@ export function tabAccents(path: string, settings: FolderToolkitSettings): TabAc
 		textStrength: appearance.text?.strength ?? null,
 		background: appearance.background?.hex ?? null,
 		backgroundStrength: appearance.background?.strength ?? null,
+		border: appearance.border?.color.hex ?? null,
+		borderStrength: appearance.border?.color.strength ?? null,
 	};
 }
 
@@ -67,8 +96,12 @@ export class TabManager {
 				processedHeaders.add(header);
 				this.styledHeaders.add(header);
 				const accents = tabAccents(path, settings);
-				const useBackground = accents.background !== null && settings.tabStyle === 'background';
-				const useBorder = accents.background !== null && settings.tabStyle === 'border';
+				const style = settings.tabStyle;
+				const useBackground = accents.background !== null && (style === 'background' || style === 'both');
+				// The border uses the item's border color, or its background color when it has no border.
+				const borderColor = accents.border ?? accents.background;
+				const borderStrength = accents.border !== null ? accents.borderStrength : accents.backgroundStrength;
+				const useBorder = borderColor !== null && (style === 'border' || style === 'both');
 
 				syncClass(header, 'ft-tab-has-text', accents.text !== null);
 				syncClass(header, 'ft-tab-background', useBackground);
@@ -77,7 +110,10 @@ export class TabManager {
 				syncStyle(header.style, '--ft-tab-text-dark', accents.textDark);
 				syncStyle(header.style, '--ft-tab-text-strength', accents.textStrength === null ? null : `${accents.textStrength}%`);
 				syncStyle(header.style, '--ft-tab-background', useBackground ? accents.background : null);
-				syncStyle(header.style, '--ft-tab-border', useBorder ? accents.background : null);
+				syncStyle(header.style, '--ft-tab-border', useBorder ? borderColor : null);
+				const hoverStep = accents.border !== null ? 20 : 8;
+				syncStyle(header.style, '--ft-tab-border-strength', useBorder && borderStrength !== null ? `${borderStrength}%` : null);
+				syncStyle(header.style, '--ft-tab-border-hover-strength', useBorder && borderStrength !== null ? `${Math.min(100, borderStrength + hoverStep)}%` : null);
 				syncStyle(header.style, '--ft-tab-strength', accents.backgroundStrength === null ? null : `${accents.backgroundStrength}%`);
 				syncStyle(header.style, '--ft-tab-hover-strength', accents.backgroundStrength === null ? null : `${Math.min(100, accents.backgroundStrength + 8)}%`);
 			});

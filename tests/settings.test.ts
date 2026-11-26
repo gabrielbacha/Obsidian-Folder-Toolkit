@@ -59,7 +59,44 @@ describe('settings normalization', () => {
 
 	it('accepts only supported open-tab styles', () => {
 		expect(normalizeSettings({ tabStyle: 'border' }).tabStyle).toBe('border');
+		expect(normalizeSettings({ tabStyle: 'both' }).tabStyle).toBe('both');
 		expect(normalizeSettings({ tabStyle: 'rainbow' }).tabStyle).toBe('off');
+	});
+
+	it('remembers which tab style the quick switch restores', () => {
+		expect(normalizeSettings({ tabStyle: 'off' }).tabStyleWhenOn).toBe('both');
+		expect(normalizeSettings({ tabStyle: 'border' }).tabStyleWhenOn).toBe('border');
+		expect(normalizeSettings({ tabStyle: 'off', tabStyleWhenOn: 'background' }).tabStyleWhenOn).toBe('background');
+		expect(normalizeSettings({ tabStyle: 'off', tabStyleWhenOn: 'off' }).tabStyleWhenOn).toBe('both');
+	});
+
+	it('keeps a rule whose only setting is note tab visibility', () => {
+		const settings = normalizeSettings({ schemaVersion: 7, appearanceRules: { A: { tabs: false }, B: { tabs: 'no' } } });
+		expect(settings.appearanceRules.A).toEqual({ tabs: false });
+		expect(settings.appearanceRules.B).toBeUndefined();
+		expect(settings.schemaVersion).toBe(8);
+	});
+
+	it('normalizes saved presets and drops broken entries', () => {
+		const settings = normalizeSettings({
+			savedPresets: [
+				{ id: 'a', name: '  Review  ', rule: { text: { color: { kind: 'preset', slot: 2 }, bold: true, strikethrough: false, cascade: false } } },
+				{ id: 'a', name: 'Duplicate id', rule: { tabs: false } },
+				{ id: 'b', name: '', rule: { tabs: false } },
+				{ id: 'c', name: 'Empty', rule: {} },
+				{ name: 'No id', rule: { tabs: false } },
+				'broken',
+			],
+		});
+		expect(settings.savedPresets).toEqual([
+			{ id: 'a', name: 'Review', rule: { text: { color: { kind: 'preset', slot: 2 }, bold: true, strikethrough: false, cascade: false } } },
+		]);
+		expect(normalizeSettings({}).savedPresets).toEqual([]);
+		expect(() => normalizeSettings({ savedPresets: {} })).toThrow(/presets/);
+	});
+
+	it('refuses settings written by a newer schema', () => {
+		expect(() => normalizeSettings({ schemaVersion: 9 })).toThrow(/newer Folder Toolkit/);
 	});
 
 	it('normalizes conditional formatting rules and removes malformed entries', () => {

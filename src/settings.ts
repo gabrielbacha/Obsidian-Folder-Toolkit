@@ -2,7 +2,10 @@ import { normalizeHex, normalizePaletteTemplateId, normalizeStrength, paletteTem
 import {
 	DEFAULT_CONDITIONAL_FORMATS,
 	SCHEMA_VERSION,
+	TAB_STYLES,
 	VAULT_MARKERS,
+	type SavedPreset,
+	type TabStyle,
 	type VaultMarker,
 	type AppearanceRule,
 	type BorderAppearanceRule,
@@ -99,13 +102,34 @@ export function normalizeAppearance(value: unknown, paletteLength: number): Appe
 	const background = normalizeEffect(value.background, paletteLength);
 	const border = normalizeBorderAppearance(value.border, paletteLength);
 	const descendants = normalizeDescendants(value.descendants);
-	if (!text && !background && !border && !descendants) return null;
+	const tabs = typeof value.tabs === 'boolean' ? value.tabs : undefined;
+	if (!text && !background && !border && !descendants && tabs === undefined) return null;
 	return {
 		...(text ? { text } : {}),
 		...(background ? { background } : {}),
 		...(border ? { border } : {}),
 		...(descendants ? { descendants } : {}),
+		...(tabs === undefined ? {} : { tabs }),
 	};
+}
+
+function normalizeSavedPresets(value: unknown, paletteLength: number): SavedPreset[] {
+	if (!Array.isArray(value)) return [];
+	const seen = new Set<string>();
+	const presets: SavedPreset[] = [];
+	for (const entry of value) {
+		if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id || seen.has(entry.id)) continue;
+		const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+		const rule = normalizeAppearance(entry.rule, paletteLength);
+		if (!name || !rule) continue;
+		seen.add(entry.id);
+		presets.push({ id: entry.id, name, rule });
+	}
+	return presets;
+}
+
+function normalizeTabStyle(value: unknown): TabStyle {
+	return TAB_STYLES.includes(value as TabStyle) ? value as TabStyle : 'off';
 }
 
 function normalizeConditionalFormat(value: unknown, paletteLength: number): ConditionalFormatRule | null {
@@ -173,6 +197,7 @@ export function normalizeSettings(raw: unknown): FolderToolkitSettings {
 	if (raw.schemaVersion !== undefined && (typeof raw.schemaVersion !== 'number' || !Number.isSafeInteger(raw.schemaVersion) || raw.schemaVersion < 0)) throw new Error('Saved Folder Toolkit schema version is invalid. Settings are read-only.');
 	if (raw.appearanceRules !== undefined && !isRecord(raw.appearanceRules)) throw new Error('Saved appearance rules must be a path dictionary. Settings are read-only.');
 	if (raw.conditionalFormats !== undefined && !Array.isArray(raw.conditionalFormats)) throw new Error('Saved name rules must be a list. Settings are read-only.');
+	if (raw.savedPresets !== undefined && !Array.isArray(raw.savedPresets)) throw new Error('Saved presets must be a list. Settings are read-only.');
 	if (raw.hiddenPaths !== undefined && !Array.isArray(raw.hiddenPaths)) throw new Error('Saved hidden paths must be a list. Settings are read-only.');
 	if (typeof raw.schemaVersion === 'number' && raw.schemaVersion > SCHEMA_VERSION) throw new Error(`Settings schema ${raw.schemaVersion} requires a newer Folder Toolkit. Settings are read-only.`);
 	const paletteTemplateId = normalizePaletteTemplateId(raw.paletteTemplateId);
@@ -198,12 +223,21 @@ export function normalizeSettings(raw: unknown): FolderToolkitSettings {
 	return {
 		schemaVersion: SCHEMA_VERSION,
 		paletteTemplateId,
-		tabStyle: raw.tabStyle === 'background' || raw.tabStyle === 'border' ? raw.tabStyle : 'off',
+		tabStyle: normalizeTabStyle(raw.tabStyle),
+		tabStyleWhenOn: tabStyleWhenOn(raw),
 		appearanceRules,
 		conditionalFormats: migratedConditionalFormats,
+		savedPresets: normalizeSavedPresets(raw.savedPresets, paletteLength),
 		hiddenPaths,
 		showHiddenItems: raw.showHiddenItems === true,
 		nestedVaults: raw.nestedVaults !== false,
 		vaultMarker: VAULT_MARKERS.includes(raw.vaultMarker as VaultMarker) ? raw.vaultMarker as VaultMarker : 'both',
 	};
+}
+
+function tabStyleWhenOn(raw: Record<string, unknown>): Exclude<TabStyle, 'off'> {
+	const saved = normalizeTabStyle(raw.tabStyleWhenOn);
+	if (saved !== 'off') return saved;
+	const current = normalizeTabStyle(raw.tabStyle);
+	return current === 'off' ? 'both' : current;
 }

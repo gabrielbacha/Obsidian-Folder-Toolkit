@@ -19,10 +19,16 @@ import {
 	type CopiedAppearance,
 	type MissingRoot,
 } from './rule-transfer';
-import { TabManager } from './tab-manager';
-import { VAULT_MARKERS, type AppearanceRule, type ConditionalFormatRule, type FolderToolkitSettings, type PaletteTemplateId, type VaultMarker } from './types';
+import { TabManager, tabVisibility } from './tab-manager';
+import {
+	TAB_STYLES, VAULT_MARKERS,
+	type AppearanceRule, type ConditionalFormatRule, type FolderToolkitSettings, type PaletteTemplateId, type SavedPreset, type TabStyle, type VaultMarker,
+} from './types';
+import { appearanceForItem } from './appearance-presets';
 import { AppearanceModal, type AppearanceTarget } from './ui/appearance-modal';
+import { addSubmenu, appearanceMenuEntries, type AppearanceMenuHost } from './ui/appearance-menu';
 import { MissingItemsModal } from './ui/missing-items-modal';
+import { PresetNameModal } from './ui/preset-name-modal';
 
 import { FolderToolkitSettingTab } from './ui/settings-tab';
 
@@ -103,6 +109,12 @@ export default class FolderToolkitPlugin extends Plugin {
 			id: 'relink-missing-items',
 			name: 'Relink missing items',
 			callback: () => this.relinkMissingItems(),
+		});
+
+		this.addCommand({
+			id: 'toggle-note-tab-colors',
+			name: 'Toggle note tab colors',
+			callback: () => void this.toggleTabColors(),
 		});
 
 		this.addCommand({
@@ -368,8 +380,144 @@ export default class FolderToolkitPlugin extends Plugin {
 	}
 
 	async setTabStyle(value: string): Promise<void> {
-		this.settings.tabStyle = value === 'background' || value === 'border' ? value : 'off';
+		const style = TAB_STYLES.includes(value as TabStyle) ? value as TabStyle : 'off';
+		this.settings.tabStyle = style;
+		if (style !== 'off') this.settings.tabStyleWhenOn = style;
 		await this.persist();
+	}
+
+	/** Turns note tab colors off, or back on with the style used last. */
+	async toggleTabColors(): Promise<void> {
+		const on = this.settings.tabStyle === 'off';
+		await this.setTabStyle(on ? this.settings.tabStyleWhenOn : 'off');
+		new Notice(on ? 'Note tab colors are on.' : 'Note tab colors are off.');
+	}
+
+	/** Whether the tab of `path` shows its colors, from saved rules and open previews. */
+	showsOnTabs(path: string): boolean {
+		return tabVisibility(path, this.effectiveSettings().appearanceRules).visible;
+	}
+
+	/** Makes the tab of `path` show or hide its colors. A choice equal to the inherited one removes the item's own setting. */
+	async setItemTabs(path: string, visible: boolean): Promise<void> {
+		const target = await this.appearanceTarget(path);
+		const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+		const inherited = parent ? tabVisibility(parent, this.savedAppearanceRules()).visible : true;
+		const rule = structuredClone(target.rule ?? {});
+		if (visible === inherited) delete rule.tabs;
+		else rule.tabs = visible;
+		await this.setAppearance(path, rule, target.owner);
+	}
+
+	/** Saves `rule` as a named preset and returns its id. */
+	async savePreset(name: string, rule: AppearanceRule): Promise<string> {
+		const trimmed = name.trim();
+		if (!trimmed) throw new Error('Enter a name.');
+		if (Object.keys(rule).length === 0) throw new Error('This appearance is empty. Set a style before you save it as a preset.');
+		const id = `preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		this.settings.savedPresets.push({ id, name: trimmed, rule: structuredClone(rule) });
+		await this.persist();
+		new Notice(`Saved preset “${trimmed}”.`);
+		return id;
+	}
+
+	async renamePreset(id: string, name: string): Promise<void> {
+		const preset = this.settings.savedPresets.find((candidate) => candidate.id === id);
+		const trimmed = name.trim();
+		if (!preset || !trimmed || preset.name === trimmed) return;
+		preset.name = trimmed;
+		await this.persist();
+	}
+
+	async deletePreset(id: string): Promise<void> {
+		const remaining = this.settings.savedPresets.filter((preset) => preset.id !== id);
+		if (remaining.length === this.settings.savedPresets.length) return;
+		this.settings.savedPresets = remaining;
+		await this.persist();
+	}
+
+	/** Opens the name dialog and saves the saved rule of `path` as a preset. */
+	promptSavePreset(path: string, rule?: AppearanceRule, onSaved?: () => void): void {
+		const source = rule ?? this.savedAppearanceRules()[path];
+		if (!source || Object.keys(source).length === 0) {
+			new Notice('This item has no appearance to save as a preset.');
+			return;
+		}
+		new PresetNameModal(this.app, {
+			title: 'Save appearance as preset',
+			initialName: path.split('/').at(-1)?.replace(/\.md$/i, '') ?? '',
+			onSubmit: async (name) => { await this.savePreset(name, source); onSaved?.(); },
+		}).open();
+	}
+
+	/** Saves a preset's appearance for `path`, replacing the item's own rule. */
+	async applyPreset(path: string, id: string): Promise<void> {
+		const preset = this.settings.savedPresets.find((candidate) => candidate.id === id);
+		if (!preset) {
+			new Notice('This preset no longer exists.');
+			return;
+		}
+		await this.replaceOwnRule(path, appearanceForItem(preset.rule, this.isFolderPath(path)));
+		new Notice(`Applied preset “${preset.name}”.`);
+	}
+
+	/** Pastes copied appearance onto `path` without opening the editor. */
+	async pasteAppearance(path: string): Promise<void> {
+		const copied = await this.readCopiedAppearance();
+		if (!copied) return;
+		const isFolder = this.isFolderPath(path);
+		const own = copied[OWN_RULE_KEY];
+		const hasDescendants = Object.keys(copied).some((key) => key !== OWN_RULE_KEY);
+		if (!own && !(isFolder && hasDescendants)) {
+			new Notice('The copied appearance has no style for this item.');
+			return;
+		}
+		if (own) await this.replaceOwnRule(path, appearanceForItem(own, isFolder));
+		let saved = own ? 1 : 0;
+		let skipped = 0;
+		if (isFolder && hasDescendants) {
+			const result = await this.pasteDescendantAppearance(path, copied);
+			saved += result.saved;
+			skipped = result.skipped;
+		}
+		const skippedText = skipped > 0 ? ` ${skipped} skipped because the item does not exist here.` : '';
+		new Notice(`Pasted ${saved} appearance ${saved === 1 ? 'style' : 'styles'}.${skippedText}`);
+	}
+
+	/** Removes the own rule of `path`, so it shows inherited and name-rule styles again. */
+	async resetAppearance(path: string): Promise<void> {
+		const target = await this.appearanceTarget(path);
+		if (!target.rule) {
+			new Notice('This item already uses the inherited appearance.');
+			return;
+		}
+		await this.setAppearance(path, {}, target.owner);
+		new Notice('Appearance reset to inherited.');
+	}
+
+	private async replaceOwnRule(path: string, rule: AppearanceRule): Promise<void> {
+		const target = await this.appearanceTarget(path);
+		await this.setAppearance(path, rule, target.owner);
+	}
+
+	private isFolderPath(path: string): boolean {
+		return this.app.vault.getAbstractFileByPath(path) instanceof TFolder;
+	}
+
+	private appearanceMenuHost(): AppearanceMenuHost {
+		return {
+			savedPresets: (): SavedPreset[] => this.settings.savedPresets,
+			hasOwnRule: (path) => hasOwn(this.savedAppearanceRules(), path),
+			showsOnTabs: (path) => this.showsOnTabs(path),
+			tabColorsOn: () => this.settings.tabStyle !== 'off',
+			copyAppearance: (path) => this.copyAppearance(path),
+			pasteAppearance: (path) => this.pasteAppearance(path),
+			promptSavePreset: (path) => this.promptSavePreset(path),
+			applyPreset: (path, id) => this.applyPreset(path, id),
+			resetAppearance: (path) => this.resetAppearance(path),
+			setItemTabs: (path, visible) => this.setItemTabs(path, visible),
+			toggleTabColors: () => this.toggleTabColors(),
+		};
 	}
 
 	previewConditionalFormat(rule: ConditionalFormatRule): void {
@@ -409,6 +557,17 @@ export default class FolderToolkitPlugin extends Plugin {
 		await this.persist();
 	}
 
+	/** Copies a saved name rule and inserts the copy right after it. Returns the copy's id. */
+	async duplicateConditionalFormat(id: string): Promise<string | null> {
+		const index = this.settings.conditionalFormats.findIndex((rule) => rule.id === id);
+		const original = this.settings.conditionalFormats[index];
+		if (!original) return null;
+		const copyId = `conditional-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		this.settings.conditionalFormats.splice(index + 1, 0, { ...structuredClone(original), id: copyId });
+		await this.persist();
+		return copyId;
+	}
+
 	async moveConditionalFormat(id: string, direction: -1 | 1): Promise<void> {
 		const index = this.settings.conditionalFormats.findIndex((rule) => rule.id === id);
 		const target = index + direction;
@@ -446,6 +605,7 @@ export default class FolderToolkitPlugin extends Plugin {
 			.setTitle(`Edit ${file instanceof TFolder ? 'folder' : 'file'} appearance…`)
 			.setIcon('palette')
 			.onClick(() => void this.openAppearanceEditor(file.path)));
+		addSubmenu(menu, 'Appearance', 'paintbrush', appearanceMenuEntries(file.path, this.appearanceMenuHost()));
 
 		const hiddenAncestor = this.findHiddenAncestor(file.path);
 		if (hiddenAncestor) {

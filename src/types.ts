@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const PALETTE_TEMPLATE_IDS = [
 	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
@@ -58,7 +58,20 @@ export interface AppearanceRule {
 	background?: EffectRule;
 	border?: BorderAppearanceRule;
 	descendants?: DescendantRule;
+	/** Whether open note tabs show this item's colors. Unset inherits from the nearest folder that sets it; the default shows them. */
+	tabs?: boolean;
 }
+
+/** A named appearance that can be applied to any file or folder. */
+export interface SavedPreset {
+	id: string;
+	name: string;
+	rule: AppearanceRule;
+}
+
+export const TAB_STYLES = ['off', 'background', 'border', 'both'] as const;
+export type TabStyle = (typeof TAB_STYLES)[number];
+export type TabStyleOn = Exclude<TabStyle, 'off'>;
 
 export type ConditionalTarget = 'folder' | 'file' | 'both';
 export type ConditionalMatch = 'equals' | 'startsWith' | 'endsWith' | 'contains';
@@ -122,9 +135,12 @@ export const DEFAULT_CONDITIONAL_FORMATS: ConditionalFormatRule[] = [
 export interface FolderToolkitSettings {
 	schemaVersion: number;
 	paletteTemplateId: PaletteTemplateId;
-	tabStyle: 'off' | 'background' | 'border';
+	tabStyle: TabStyle;
+	/** The tab style that the quick tab-color switch restores. */
+	tabStyleWhenOn: TabStyleOn;
 	appearanceRules: Record<string, AppearanceRule>;
 	conditionalFormats: ConditionalFormatRule[];
+	savedPresets: SavedPreset[];
 	hiddenPaths: string[];
 	showHiddenItems: boolean;
 	/** Read and save folder appearance in the nested vault that owns a folder. */
@@ -140,8 +156,10 @@ export const DEFAULT_SETTINGS: FolderToolkitSettings = {
 	schemaVersion: SCHEMA_VERSION,
 	paletteTemplateId: 'default',
 	tabStyle: 'off',
+	tabStyleWhenOn: 'both',
 	appearanceRules: {},
 	conditionalFormats: DEFAULT_CONDITIONAL_FORMATS,
+	savedPresets: [],
 	hiddenPaths: [],
 	showHiddenItems: false,
 	nestedVaults: true,

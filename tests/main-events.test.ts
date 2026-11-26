@@ -14,6 +14,8 @@ describe('workspace refresh events', () => {
 			schemaVersion: 1,
 			paletteTemplateId: 'default',
 			tabStyle: 'background',
+			tabStyleWhenOn: 'both',
+			savedPresets: [],
 			appearanceRules: {
 				Blue: { background: { choice: { kind: 'preset', slot: 1 }, cascade: true } },
 				Red: { background: { choice: { kind: 'preset', slot: 7 }, cascade: true } },

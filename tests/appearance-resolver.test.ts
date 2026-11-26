@@ -6,6 +6,8 @@ const settings: FolderToolkitSettings = {
 	schemaVersion: 1,
 	paletteTemplateId: 'default',
 	tabStyle: 'off',
+	tabStyleWhenOn: 'both',
+	savedPresets: [],
 	conditionalFormats: [],
 	hiddenPaths: [],
 	showHiddenItems: false,

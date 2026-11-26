@@ -1,7 +1,7 @@
 import { appearancePresentation } from '../appearance-presentation';
 import { setIcon } from 'obsidian';
 import { resolveAppearance } from '../appearance-resolver';
-import type { AppearanceRule, FolderToolkitSettings } from '../types';
+import type { AppearanceRule, ConditionalFormatRule, FolderToolkitSettings } from '../types';
 
 type PreviewRelation = 'root' | 'ancestor' | 'descendant' | 'sibling';
 
@@ -43,11 +43,7 @@ function joinPath(parent: string, name: string): string {
  * preset buttons. Rows carry explorer class names so the shared preview CSS
  * renders them like the real file explorer.
  */
-export function buildPreviewTree(container: HTMLElement, path: string, isFolder: boolean, size: PreviewTreeSize): PreviewTree {
-	const tree = container.createDiv(size === 'compact' ? 'ft-preview-tree ft-preview-tree--compact' : 'ft-preview-tree');
-	const rows: PreviewRow[] = [];
-	const subfolderOrder: string[] = [];
-
+function rowFactory(rows: PreviewRow[]) {
 	const folderRow = (parent: HTMLElement, name: string, rowPath: string, relation: PreviewRelation, collapsed = false) => {
 		const folderContainer = parent.createDiv('nav-folder');
 		const titleRow = folderContainer.createDiv('ft-live-preview__row ft-live-preview__folder-title nav-folder-title');
@@ -66,6 +62,14 @@ export function buildPreviewTree(container: HTMLElement, path: string, isFolder:
 		row.createSpan({ text: name, cls: 'ft-live-preview__name nav-file-title-content' });
 		rows.push({ path: rowPath, el: row, titleEl: row, isFolder: false, relation });
 	};
+	return { folderRow, fileRow };
+}
+
+export function buildPreviewTree(container: HTMLElement, path: string, isFolder: boolean, size: PreviewTreeSize): PreviewTree {
+	const tree = container.createDiv(size === 'compact' ? 'ft-preview-tree ft-preview-tree--compact' : 'ft-preview-tree');
+	const rows: PreviewRow[] = [];
+	const subfolderOrder: string[] = [];
+	const { folderRow, fileRow } = rowFactory(rows);
 
 	const rootName = path.split('/').at(-1) ?? path;
 	if (!isFolder) {
@@ -99,12 +103,60 @@ export function buildPreviewTree(container: HTMLElement, path: string, isFolder:
 	return { rows, subfolderOrder };
 }
 
+const SAMPLE_ROOT = 'Folder Toolkit sample';
+
+/** A sample name that the rule matches, made from its pattern. */
+export function conditionalSampleName(rule: Pick<ConditionalFormatRule, 'match' | 'pattern'>): string {
+	const pattern = rule.pattern.trim();
+	switch (rule.match) {
+		case 'equals': return pattern;
+		case 'startsWith': return `${pattern} notes`;
+		case 'endsWith': return `Project ${pattern}`;
+		case 'contains': return `My ${pattern} list`;
+	}
+}
+
+/**
+ * Builds a small sample explorer for a name rule: the items it matches, by its target,
+ * and one item that does not match. Returns null and shows a hint when the pattern is empty.
+ */
+export function buildConditionalSample(container: HTMLElement, rule: ConditionalFormatRule): PreviewTree | null {
+	if (!rule.pattern.trim()) {
+		container.createDiv({ text: 'Type a pattern to see a preview.', cls: 'ft-conditional-preview__hint' });
+		return null;
+	}
+	const tree = container.createDiv('ft-preview-tree ft-preview-tree--compact ft-conditional-preview__tree');
+	const rows: PreviewRow[] = [];
+	const { folderRow, fileRow } = rowFactory(rows);
+	const name = conditionalSampleName(rule);
+	const fileName = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.md`;
+	if (rule.target !== 'file') folderRow(tree, name, `${SAMPLE_ROOT}/${name}`, 'sibling', true);
+	if (rule.target !== 'folder') fileRow(tree, name.replace(/\.md$/i, ''), `${SAMPLE_ROOT}/${fileName}`, 'sibling');
+	if (rule.target === 'folder') folderRow(tree, 'Other folder', `${SAMPLE_ROOT}/Other folder`, 'sibling', true);
+	else fileRow(tree, 'Other note', `${SAMPLE_ROOT}/Other note.md`, 'sibling');
+	return { rows, subfolderOrder: [] };
+}
+
+/** Paints a conditional sample with only `rule`, on the palette of `baseSettings`. */
+export function styleConditionalSample(tree: PreviewTree, baseSettings: FolderToolkitSettings, rule: ConditionalFormatRule): void {
+	const { scope: _scope, ...unscoped } = rule;
+	stylePreviewRows(tree, {
+		...baseSettings,
+		appearanceRules: Object.create(null) as Record<string, AppearanceRule>,
+		conditionalFormats: [unscoped],
+	});
+}
+
 /** Applies `rule` to `path` on top of the saved settings and paints every sample row. */
 export function stylePreviewTree(tree: PreviewTree, baseSettings: FolderToolkitSettings, path: string, rule: AppearanceRule): void {
 	// Read-only overlay: one draft shadows a shared rule index without cloning the full vault map.
 	const appearanceRules = Object.create(baseSettings.appearanceRules) as Record<string, AppearanceRule>;
 	Object.defineProperty(appearanceRules, path, { value: rule, enumerable: true, configurable: true });
-	const settings = { ...baseSettings, appearanceRules };
+	stylePreviewRows(tree, { ...baseSettings, appearanceRules });
+}
+
+/** Paints every sample row as the explorer would show it with `settings`. */
+export function stylePreviewRows(tree: PreviewTree, settings: FolderToolkitSettings): void {
 	const getDescendantIndex = (candidate: string) => Math.max(0, tree.subfolderOrder.indexOf(candidate));
 
 	for (const { path: rowPath, el, titleEl, isFolder, relation } of tree.rows) {

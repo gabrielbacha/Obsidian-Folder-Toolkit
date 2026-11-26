@@ -4,6 +4,7 @@ import { sameJsonData } from '../record-utils';
 import { captureFocus } from './focus-state';
 import { Modal, Notice, Scope, TAbstractFile, TFolder, setIcon } from 'obsidian';
 import {
+	appearanceForItem,
 	createFileAppearancePreset,
 	createFolderAppearancePreset,
 	FILE_APPEARANCE_PRESETS,
@@ -16,6 +17,7 @@ import {
 	type SubfolderAppearanceState,
 } from '../appearance-presets';
 import { paletteTemplate } from '../colors';
+import { tabVisibility } from '../tab-manager';
 import { AppearanceControlRenderer } from './appearance-controls';
 import { buildPreviewTree, stylePreviewTree, type PreviewTree } from './preview-tree';
 import type FolderToolkitPlugin from '../main';
@@ -126,6 +128,7 @@ export class AppearanceModal extends Modal {
 		this.renderBorder(cards);
 		this.renderText(cards);
 		if (this.isFolder) this.renderDescendants(cards);
+		this.renderTabs();
 		this.renderPresets();
 		this.renderOwnerNote();
 
@@ -145,6 +148,13 @@ export class AppearanceModal extends Modal {
 		const paste = transfer.createEl('button', { text: 'Paste', attr: { type: 'button', 'aria-label': 'Paste appearance', title: 'Paste a copied appearance. Save keeps it.' } });
 		setIcon(paste.createSpan({ cls: 'ft-modal-footer__icon', prepend: true }), 'clipboard-paste');
 		paste.addEventListener('click', () => { void this.paste(); });
+		const savePreset = transfer.createEl('button', { text: 'Save as preset', attr: { type: 'button', 'aria-label': 'Save as preset', title: 'Save the appearance shown here as a named preset' } });
+		setIcon(savePreset.createSpan({ cls: 'ft-modal-footer__icon', prepend: true }), 'bookmark-plus');
+		savePreset.addEventListener('click', () => {
+			this.toolkit.promptSavePreset(this.path, structuredClone(this.draft), () => {
+				if (!this.editorDisposed) this.rebuildPresets();
+			});
+		});
 		const clear = footer.createEl('button', { text: 'Reset to inherited', attr: { type: 'button' } });
 		clear.addEventListener('click', () => {
 			this.draft = {};
@@ -163,6 +173,14 @@ export class AppearanceModal extends Modal {
 		restoreFocus();
 	}
 
+	/** Builds the preset section again, for example after a new preset was saved. */
+	private rebuildPresets(): void {
+		this.presetSection?.remove();
+		this.presetSection = null;
+		this.presetSamples.length = 0;
+		this.render();
+	}
+
 	private renderPresets(): void {
 		if (this.presetSection) { this.contentEl.appendChild(this.presetSection); return; }
 		const section = this.contentEl.createEl('details', { cls: 'ft-appearance-presets' });
@@ -175,6 +193,7 @@ export class AppearanceModal extends Modal {
 		if (!this.isFolder) {
 			heading.createSpan({ text: 'Replace all settings above with a starting style.', cls: 'ft-appearance-presets__hint' });
 			this.renderPresetGroup(section, undefined, FILE_APPEARANCE_PRESETS, (id) => ({ rule: createFileAppearancePreset(id, slot) }));
+			this.renderSavedPresets(section);
 			return;
 		}
 		heading.createSpan({ text: 'Each group replaces only its own settings.', cls: 'ft-appearance-presets__hint' });
@@ -194,6 +213,30 @@ export class AppearanceModal extends Modal {
 			(id) => {
 				const subfolders = createSubfolderAppearancePreset(id);
 				return { rule: withSubfolderAppearance(this.draft, subfolders), subfolders };
+			},
+		);
+		this.renderSavedPresets(section);
+	}
+
+	/** The presets that Gabriel saved with a name. Each one replaces the whole draft. */
+	private renderSavedPresets(section: HTMLElement): void {
+		const saved = this.toolkit.settings.savedPresets ?? [];
+		if (saved.length === 0) return;
+		const byId = new Map(saved.map((preset) => [preset.id, preset]));
+		this.renderPresetGroup(
+			section,
+			{ title: 'Saved presets', hint: 'Your named presets. Each replaces all settings above.' },
+			saved.map((preset) => ({ id: preset.id, label: preset.name, description: `Apply your saved preset “${preset.name}”.` })),
+			(id) => {
+				const rule = appearanceForItem(byId.get(id)?.rule ?? {}, this.isFolder);
+				return {
+					rule,
+					subfolders: {
+						...(rule.descendants ? { descendants: rule.descendants } : {}),
+						textCascade: rule.text?.cascade ?? false,
+						backgroundCascade: rule.background?.cascade ?? false,
+					},
+				};
 			},
 		);
 	}
@@ -427,6 +470,27 @@ export class AppearanceModal extends Modal {
 			this.draft.text = { ...this.ensureText(), bold, strikethrough };
 			delete this.draft.text.inheritTypography;
 			this.removeEmptyTextOverride();
+			this.render();
+		});
+	}
+
+	/** Whether note tabs show this item's colors. Unset follows the nearest folder that sets it. */
+	private renderTabs(): void {
+		const row = this.contentEl.createDiv('ft-appearance-tabs');
+		const label = row.createEl('label', { cls: 'ft-border-toggle' });
+		const checkbox = label.createEl('input', { attr: { type: 'checkbox' } });
+		const parent = this.path.includes('/') ? this.path.slice(0, this.path.lastIndexOf('/')) : '';
+		const inherited = parent ? tabVisibility(parent, this.previewSettings().appearanceRules) : { visible: true, origin: null };
+		checkbox.checked = this.draft.tabs ?? inherited.visible;
+		label.createSpan({ text: this.isFolder ? 'Show colors on the tabs of notes inside' : 'Show colors on this note’s tab' });
+		const origin = this.draft.tabs !== undefined
+			? 'Set by this rule.'
+			: inherited.origin ? `Inherited from ${inherited.origin}.` : 'Default.';
+		const globalOff = (this.toolkit.settings.tabStyle ?? 'off') === 'off' ? ' Note tab colors are off in settings.' : '';
+		row.createDiv({ cls: 'ft-control-origin', text: `${origin}${globalOff}` });
+		checkbox.addEventListener('change', () => {
+			if (checkbox.checked === inherited.visible) delete this.draft.tabs;
+			else this.draft.tabs = checkbox.checked;
 			this.render();
 		});
 	}

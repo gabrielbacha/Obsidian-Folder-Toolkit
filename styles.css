@@ -30,28 +30,72 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 	text-decoration: line-through;
 }
 
+/* Row paint sits on a layer that starts at the row's indent. Obsidian 1.15 stretches each
+   row title across the whole pane with an inline negative margin; --ft-row-inset undoes it. */
 .workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title,
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title {
-	background-color: color-mix(in srgb, var(--ft-background) var(--ft-background-strength, var(--ft-default-background-strength)), transparent);
-	border-radius: var(--radius-s);
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-block > .nav-file-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block:not(.ft-background-block-cascade) > .nav-folder-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-box > .nav-file-title,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-rail > .nav-file-title {
+	isolation: isolate;
 }
 
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct {
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-block > .nav-file-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block:not(.ft-background-block-cascade) > .nav-folder-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-box > .nav-file-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-rail > .nav-file-title::after {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: var(--ft-row-inset, 0px);
+	inset-inline-end: 0;
+	z-index: -1;
+	box-sizing: border-box;
+	border-radius: var(--radius-s);
+	pointer-events: none;
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title::after {
+	background-color: color-mix(in srgb, var(--ft-background) var(--ft-background-strength, var(--ft-default-background-strength)), transparent);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title:hover::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title:hover::after {
+	background-color: color-mix(in srgb, var(--ft-background) var(--ft-background-hover-strength, 18%), transparent);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-block > .nav-file-title::after,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block:not(.ft-background-block-cascade) > .nav-folder-title::after {
+	background-color: var(--background-secondary);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-box > .nav-file-title::after {
+	border: var(--ft-border-width, 1px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, var(--ft-default-box-strength)), transparent);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-rail > .nav-file-title::after {
+	border-inline-start: var(--ft-border-width, 2px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, var(--ft-default-rail-strength)), transparent);
+}
+
+/* Folders that paint their subtree keep child row highlights inside their own box. */
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-cascade,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block-cascade,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-box,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-rail,
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-shaded {
 	overflow: clip;
 	border-radius: var(--radius-s);
-}
-
-.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-direct.ft-has-background > .nav-file-title:hover,
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-direct.ft-has-background:not(.ft-background-cascade) > .nav-folder-title:hover {
-	background-color: color-mix(in srgb, var(--ft-background) var(--ft-background-hover-strength, 18%), transparent);
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-cascade.ft-has-background {
 	background-color: color-mix(in srgb, var(--ft-background) var(--ft-background-strength, var(--ft-default-background-strength)), var(--background-secondary));
 }
 
-.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-background-block > .nav-file-title,
-.workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block:not(.ft-background-block-cascade) > .nav-folder-title,
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-background-block-cascade {
 	background-color: var(--background-secondary);
 }
@@ -59,25 +103,11 @@ body.theme-dark .workspace-leaf-content[data-type="file-explorer"] .nav-folder.f
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-box {
 	outline: var(--ft-border-width, 1px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, var(--ft-default-box-strength)), transparent);
 	outline-offset: calc(var(--ft-border-width, 1px) * -1);
-	border-radius: var(--radius-s);
 	margin-block: 2px;
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-rail {
 	border-inline-start: var(--ft-border-width, 2px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, var(--ft-default-rail-strength)), transparent);
-	border-radius: var(--radius-s);
-}
-
-.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-box > .nav-file-title {
-	outline: var(--ft-border-width, 1px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, var(--ft-default-box-strength)), transparent);
-	outline-offset: calc(var(--ft-border-width, 1px) * -1);
-	border-radius: var(--radius-s);
-}
-
-.workspace-leaf-content[data-type="file-explorer"] .nav-file.ft-border-rail > .nav-file-title {
-	box-sizing: border-box;
-	border-inline-start: var(--ft-border-width, 2px) solid color-mix(in srgb, var(--ft-border) var(--ft-border-strength, var(--ft-default-rail-strength)), transparent);
-	border-radius: var(--radius-s);
 }
 
 .workspace-leaf-content[data-type="file-explorer"] .nav-folder.ft-border-shaded {
@@ -122,12 +152,12 @@ body.theme-dark .workspace-tab-header.ft-tab-has-text .workspace-tab-header-inne
 
 .workspace-tab-header.ft-tab-border .workspace-tab-header-inner {
 	border-radius: var(--radius-s);
-	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-strength, 72%), transparent);
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-strength, 72%), transparent);
 }
 
 .workspace-tab-header.ft-tab-border:hover .workspace-tab-header-inner,
 .workspace-tab-header.ft-tab-border.is-active .workspace-tab-header-inner {
-	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-hover-strength, 100%), transparent);
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ft-tab-border) var(--ft-tab-border-hover-strength, 100%), transparent);
 }
 
 .modal:has(.ft-appearance-modal) {
@@ -1406,3 +1436,82 @@ button.ft-conditional-disclosure:focus-visible {
 }
 .ft-managed-pagination [role="status"] { margin-inline-end: auto; }
 .ft-control-origin { color: var(--text-muted); font-size: var(--font-ui-small); }
+
+/* Saved presets and the name-rule preview. */
+.ft-saved-presets {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	width: 100%;
+	margin-top: var(--size-4-2);
+}
+
+.ft-saved-preset {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.ft-saved-preset__name {
+	font-weight: var(--font-semibold, 600);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ft-saved-preset .ft-conditional-actions {
+	margin-inline-start: auto;
+}
+
+.ft-preset-name-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.ft-preset-name-input {
+	width: 100%;
+}
+
+.ft-preset-name-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+}
+
+.ft-appearance-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1) var(--size-4-3);
+	margin-block: var(--size-4-3) 0;
+}
+
+.ft-appearance-tabs .ft-control-origin {
+	margin: 0;
+}
+
+.ft-conditional-preview {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	margin-block: var(--size-4-2);
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+}
+
+.ft-conditional-preview__body {
+	max-width: 320px;
+}
+
+.ft-conditional-preview__hint,
+.ft-conditional-preview__matches {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}

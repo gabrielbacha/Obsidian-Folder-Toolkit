@@ -1,12 +1,14 @@
 import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
 import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
 import { AppearanceControlRenderer } from './appearance-controls';
-import { isBackgroundEnabled, isBorderEnabled, isFontEnabled } from '../conditional-format';
+import { isBackgroundEnabled, isBorderEnabled, isFontEnabled, matchesConditionalFormat } from '../conditional-format';
 import type FolderToolkitPlugin from '../main';
 import type { MissingRoot } from '../rule-transfer';
 import type { AppearanceRule, ColorChoice, ConditionalFormatRule, ConditionalMatch, ConditionalTarget } from '../types';
 import { AppearanceModal } from './appearance-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
+import { PresetNameModal } from './preset-name-modal';
+import { buildConditionalSample, styleConditionalSample } from './preview-tree';
 import { MISSING_ITEMS_HINT, renderMissingItemCards } from './missing-items-modal';
 import DEFAULT_APPEARANCE_STRENGTH from '../appearance-tokens.json';
 import { ManagedPathIndex } from '../managed-path-index';
@@ -67,6 +69,12 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				render: (setting) => this.renderTabStyle(setting),
 			},
 			{
+				name: 'Saved presets',
+				desc: 'Rename or remove the appearance presets you saved with a name.',
+				aliases: ['presets', 'quick presets', 'styles'],
+				render: (setting) => this.renderSavedPresets(setting),
+			},
+			{
 				name: 'Nested vaults',
 				desc: 'Show and save folder appearance in the vault folders inside this vault.',
 				aliases: ['vault inside vault', 'nested', 'sub vault'],
@@ -109,16 +117,60 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		setting.controlEl.empty();
 		setting
 			.setName('Open note tabs')
-			.setDesc('Text color styles the title. Note background styles the tab surface or border; missing channels stay unchanged.')
+			.setDesc('Text color styles the title. The background uses the note\'s background color. The border uses its border color, or its background color when it has no border. Each file or folder can opt out in its appearance editor.')
 			.addDropdown((dropdown) => dropdown
 				.addOption('off', 'Off')
 				.addOption('background', 'Colored background')
 				.addOption('border', 'Colored border')
+				.addOption('both', 'Colored background and border')
 				.setValue(this.toolkit.settings.tabStyle)
 				.onChange(async (value) => {
 					await this.toolkit.setTabStyle(value);
 					this.update();
 				}));
+	}
+
+	private renderSavedPresets(setting: Setting): () => void {
+		setting.setName('Saved presets').setDesc('Save a preset from the appearance editor or from the appearance submenu in the file menu.');
+		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-saved-presets');
+		const presets = this.toolkit.settings.savedPresets ?? [];
+		if (presets.length === 0) wrapper.createDiv({ text: 'No saved presets yet.', cls: 'ft-empty-state' });
+		for (const preset of presets) {
+			const row = wrapper.createDiv('ft-saved-preset');
+			row.createSpan({ text: preset.name, cls: 'ft-saved-preset__name' });
+			const badges = row.createSpan('ft-conditional-summary__badges');
+			const rule = preset.rule;
+			if (rule.text?.color && rule.text.color.kind !== 'none') this.renderStyleBadge(badges, 'Text', rule.text.color);
+			if (rule.background && rule.background.choice.kind !== 'none') this.renderStyleBadge(badges, 'Background', rule.background.choice);
+			if (rule.border && !('kind' in rule.border)) this.renderStyleBadge(badges, rule.border.style === 'box' ? 'Border · Box' : 'Border · Rail', rule.border.color);
+			if (rule.text?.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
+			if (rule.text?.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
+			if (rule.tabs === false) badges.createSpan({ text: 'No tabs', cls: 'ft-style-badge' });
+			const actions = row.createDiv('ft-conditional-actions');
+			const rename = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Rename preset ${preset.name}`, title: 'Rename' } });
+			setIcon(rename, 'pencil');
+			rename.addEventListener('click', () => {
+				new PresetNameModal(this.toolkit.app, {
+					title: 'Rename preset',
+					initialName: preset.name,
+					submitLabel: 'Rename',
+					onSubmit: async (name) => { await this.toolkit.renamePreset(preset.id, name); this.update(); },
+				}).open();
+			});
+			const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove preset ${preset.name}`, title: 'Remove' } });
+			setIcon(remove, 'trash-2');
+			remove.addEventListener('click', () => {
+				new ConfirmRemoveModal(this.toolkit.app, preset.name, async () => {
+					await this.toolkit.deletePreset(preset.id);
+					this.update();
+				}, {
+					title: 'Remove preset?',
+					description: 'This removes the saved preset. Files and folders that use its style keep it.',
+					confirmLabel: 'Remove preset',
+				}).open();
+			});
+		}
+		return () => wrapper.remove();
 	}
 
 	private renderPalette(setting: Setting): () => void {
@@ -300,6 +352,25 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			setIcon(moveDown, 'arrow-down');
 			moveDown.disabled = index === this.toolkit.settings.conditionalFormats.length - 1;
 			moveDown.addEventListener('click', () => { void this.toolkit.moveConditionalFormat(rule.id, 1).then(() => this.update()); });
+			const hasDraft = !sameConditionalRule(shown, rule);
+			const duplicate = actions.createEl('button', {
+				cls: 'clickable-icon ft-conditional-duplicate',
+				attr: {
+					type: 'button',
+					'aria-label': `Duplicate rule for ${rule.pattern || 'unnamed pattern'}`,
+					title: hasDraft ? 'Duplicate the saved rule. Unsaved changes are not copied.' : 'Duplicate',
+				},
+			});
+			setIcon(duplicate, 'copy');
+			duplicate.addEventListener('click', () => {
+				void this.toolkit.duplicateConditionalFormat(rule.id).then((id) => {
+					if (id) {
+						this.expandedConditionalIds.add(id);
+						this.pendingConditionalFocusId = id;
+					}
+					this.update();
+				});
+			});
 			const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove rule for ${rule.pattern || 'unnamed pattern'}` } });
 			setIcon(remove, 'trash-2');
 			remove.addEventListener('click', () => {
@@ -319,10 +390,11 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			const edit = this.conditionalDraft(rule);
 			const editor = card.createDiv({ cls: 'ft-conditional-editor', attr: { id: `ft-rule-editor-${rule.id}` } });
 			let refreshFooter = (): void => {};
+			let refreshSample = (): void => {};
 			const change = (rerender = false): void => {
 				this.toolkit.previewConditionalFormat(edit);
 				if (rerender) this.update();
-				else refreshFooter();
+				else { refreshFooter(); refreshSample(); }
 			};
 			const meta = editor.createDiv('ft-conditional-meta-row');
 			const targetLabel = meta.createEl('label', { text: 'Apply to' });
@@ -372,6 +444,18 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 				this.pendingConditionalFocusId = null;
 				window.requestAnimationFrame(() => pattern.focus());
 			}
+
+			const sample = editor.createDiv({ cls: 'ft-conditional-preview', attr: { 'aria-label': 'Preview of this rule' } });
+			sample.createDiv({ text: 'Preview', cls: 'ft-live-preview__label' });
+			const sampleBody = sample.createDiv('ft-conditional-preview__body');
+			const sampleMatches = sample.createDiv({ cls: 'ft-conditional-preview__matches', attr: { role: 'status' } });
+			refreshSample = () => {
+				sampleBody.empty();
+				const tree = buildConditionalSample(sampleBody, edit);
+				if (tree) styleConditionalSample(tree, this.toolkit.settings, edit);
+				sampleMatches.setText(this.conditionalMatchSummary(edit));
+			};
+			refreshSample();
 
 			const styleGrid = editor.createDiv('ft-shared-style-grid');
 			const backgroundCard = styleGrid.createDiv('ft-color-card ft-color-card--background');
@@ -500,6 +584,17 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			wrapper.remove();
 			setting.settingEl.removeClass('ft-conditional-setting');
 		};
+	}
+
+	/** Says how many items in this vault the rule matches, with a few of their names. */
+	private conditionalMatchSummary(rule: ConditionalFormatRule): string {
+		if (!rule.pattern.trim()) return '';
+		const files = this.toolkit.app.vault.getAllLoadedFiles?.() ?? [];
+		const matches = files.filter((file) => file.path !== '/' && file.path !== '' && matchesConditionalFormat(file.path, file instanceof TFolder, rule));
+		if (matches.length === 0) return 'Matches no items in this vault.';
+		const names = matches.slice(0, 3).map((file) => file.name).join(', ');
+		const more = matches.length > 3 ? ', …' : '';
+		return `Matches ${matches.length} ${matches.length === 1 ? 'item' : 'items'} in this vault: ${names}${more}`;
 	}
 
 	private renderStyleBadge(container: HTMLElement, label: string, choice: ColorChoice): void {
@@ -651,6 +746,7 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 		else this.renderEffectPreview(previews, 'Border', rule.border?.color);
 		const textStyles = rule.text?.inheritTypography ? ['Inherited typography'] : [rule.text?.bold ? 'Bold' : null, rule.text?.strikethrough ? 'Strikethrough' : null].filter((style): style is string => style !== null);
 		if (textStyles.length > 0) previews.createDiv({ text: `Text style: ${textStyles.join(' · ')}`, cls: 'ft-rule-preview' });
+		if (rule.tabs !== undefined) previews.createDiv({ text: rule.tabs ? 'Note tabs: shown' : 'Note tabs: hidden', cls: 'ft-rule-preview' });
 
 		const actions = card.createDiv('ft-rule-card__actions');
 		const edit = actions.createEl('button', { text: 'Edit', attr: { type: 'button', title: `Edit appearance for ${name}` } });

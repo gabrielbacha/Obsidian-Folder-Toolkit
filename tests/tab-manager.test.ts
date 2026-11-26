@@ -1,13 +1,15 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
 import { describe, expect, it, vi } from 'vitest';
-import { TabManager, tabAccents } from '../src/tab-manager';
+import { TabManager, tabAccents, tabVisibility } from '../src/tab-manager';
 import type { FolderToolkitSettings } from '../src/types';
 
-function settings(mode: 'off' | 'background' | 'border'): FolderToolkitSettings {
+function settings(mode: 'off' | 'background' | 'border' | 'both'): FolderToolkitSettings {
 	return {
 		schemaVersion: 1,
 		paletteTemplateId: 'default',
 		tabStyle: mode,
+		tabStyleWhenOn: 'both',
+		savedPresets: [],
 		appearanceRules: {
 			A: { text: { color: { kind: 'preset', slot: 0 }, bold: false, strikethrough: false, cascade: true } },
 			B: { background: { choice: { kind: 'preset', slot: 1 }, cascade: true } },
@@ -61,16 +63,33 @@ function restoreDomWriteSpies(spies: ReturnType<typeof watchDomWrites>): void {
 
 describe('open note tabs', () => {
 	it('resolves text and background as independent channels', () => {
-		expect(tabAccents('A/note.md', settings('background'))).toEqual({ text: '#12856E', textDark: '#16A085', textStrength: null, background: null, backgroundStrength: null });
-		expect(tabAccents('B/note.md', settings('background'))).toEqual({ text: null, textDark: null, textStrength: null, background: '#3498DB', backgroundStrength: null });
-		expect(tabAccents('C/note.md', settings('background'))).toEqual({ text: '#8E44AD', textDark: '#AA73C2', textStrength: null, background: '#2C3E50', backgroundStrength: null });
-		expect(tabAccents('Other.md', settings('background'))).toEqual({ text: null, textDark: null, textStrength: null, background: null, backgroundStrength: null });
+		expect(tabAccents('A/note.md', settings('background'))).toEqual({ text: '#12856E', textDark: '#16A085', textStrength: null, background: null, backgroundStrength: null, border: null, borderStrength: null });
+		expect(tabAccents('B/note.md', settings('background'))).toEqual({ text: null, textDark: null, textStrength: null, background: '#3498DB', backgroundStrength: null, border: null, borderStrength: null });
+		expect(tabAccents('C/note.md', settings('background'))).toEqual({ text: '#8E44AD', textDark: '#AA73C2', textStrength: null, background: '#2C3E50', backgroundStrength: null, border: null, borderStrength: null });
+		expect(tabAccents('Other.md', settings('background'))).toEqual({ text: null, textDark: null, textStrength: null, background: null, backgroundStrength: null, border: null, borderStrength: null });
+	});
+
+	it('hides tab colors where the nearest rule says so', () => {
+		const current = settings('both');
+		current.appearanceRules.B = { ...current.appearanceRules.B, tabs: false };
+		current.appearanceRules['B/Keep'] = { tabs: true };
+		expect(tabVisibility('B/note.md', current.appearanceRules)).toEqual({ visible: false, origin: 'B' });
+		expect(tabAccents('B/note.md', current).background).toBeNull();
+		expect(tabVisibility('B/Keep/note.md', current.appearanceRules)).toEqual({ visible: true, origin: 'B/Keep' });
+		expect(tabAccents('B/Keep/note.md', current).background).toBe('#3498DB');
+		expect(tabVisibility('A/note.md', current.appearanceRules)).toEqual({ visible: true, origin: null });
+	});
+
+	it('uses the item border color for tab borders', () => {
+		const current = settings('border');
+		current.appearanceRules['B/note.md'] = { border: { style: 'box', color: { kind: 'custom', hex: '#E74C3C', strength: 50 } } };
+		expect(tabAccents('B/note.md', current)).toMatchObject({ background: '#3498DB', border: '#E74C3C', borderStrength: 50 });
 	});
 
 	it('retains cascaded tab backgrounds inside shaded direct subfolders', () => {
 		const current = settings('background');
 		current.appearanceRules.B.descendants = { enabled: true, style: 'box', thickness: 'thin', shading: true };
-		expect(tabAccents('B/Subfolder/note.md', current)).toEqual({ text: null, textDark: null, textStrength: null, background: '#3498DB', backgroundStrength: null });
+		expect(tabAccents('B/Subfolder/note.md', current)).toEqual({ text: null, textDark: null, textStrength: null, background: '#3498DB', backgroundStrength: null, border: null, borderStrength: null });
 	});
 
 	it('maps leaves to their tab headers and cleans up', () => {
@@ -115,6 +134,30 @@ describe('open note tabs', () => {
 		expect(firstHeader.style.getPropertyValue('--ft-tab-text')).toBe('');
 		expect(secondHeader.classList.contains('ft-tab-border')).toBe(false);
 		expect(secondHeader.style.getPropertyValue('--ft-tab-border')).toBe('');
+		workspace.remove();
+	});
+
+	it('applies background and border together in both mode', () => {
+		const workspace = document.createElement('div');
+		const tabs = document.createElement('div');
+		tabs.className = 'workspace-tabs';
+		const header = document.createElement('div');
+		header.className = 'workspace-tab-header';
+		const leafElement = document.createElement('div');
+		leafElement.className = 'workspace-leaf';
+		const content = document.createElement('div');
+		leafElement.append(content);
+		tabs.append(header, leafElement);
+		workspace.append(tabs);
+		const leaf = createLeaf(content, 'B/note.md');
+		const app = { workspace: { containerEl: workspace, iterateAllLeaves: (callback: (item: WorkspaceLeaf) => unknown) => callback(leaf) } } as unknown as App;
+		const manager = new TabManager(app, () => settings('both'));
+		manager.reconcile();
+		expect(header.classList.contains('ft-tab-background')).toBe(true);
+		expect(header.classList.contains('ft-tab-border')).toBe(true);
+		expect(header.style.getPropertyValue('--ft-tab-background')).toBe('#3498DB');
+		expect(header.style.getPropertyValue('--ft-tab-border')).toBe('#3498DB');
+		manager.stop();
 		workspace.remove();
 	});
 

@@ -273,3 +273,16 @@ export function paletteSlotsUsedByAppearance(rule: AppearanceRule | undefined): 
 	if (rule.border && !('kind' in rule.border) && rule.border.color.kind === 'preset') slots.add(rule.border.color.slot);
 	return [...slots];
 }
+
+/**
+ * Returns a copy of `rule` that fits the item it is applied to. A file has no subfolders,
+ * so folder-only parts (subfolder styling and cascades) are removed.
+ */
+export function appearanceForItem(rule: AppearanceRule, isFolder: boolean): AppearanceRule {
+	const next = structuredClone(rule);
+	if (isFolder) return next;
+	delete next.descendants;
+	if (next.text) next.text.cascade = false;
+	if (next.background) next.background.cascade = false;
+	return next;
+}

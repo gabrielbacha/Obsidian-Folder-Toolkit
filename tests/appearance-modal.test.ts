@@ -11,6 +11,8 @@ function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appear
 		schemaVersion: 6,
 		paletteTemplateId: "default",
 		tabStyle: "off",
+		tabStyleWhenOn: 'both',
+		savedPresets: [],
 		appearanceRules,
 		conditionalFormats: [],
 		hiddenPaths: [],
@@ -25,7 +27,9 @@ function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appear
 	Object.assign(currentFolder, { parent });
 	for (const sibling of siblings) Object.assign(sibling, { parent });
 	const setAppearance = vi.fn().mockResolvedValue(undefined);
+	const promptSavePreset = vi.fn();
 	const toolkit = {
+		promptSavePreset,
 		app: { vault: { getAbstractFileByPath: () => folder ? currentFolder : {} } },
 		settings,
 		previewAppearance,
@@ -35,7 +39,7 @@ function harness(folder: boolean, appearanceRules: FolderToolkitSettings["appear
 	const modal = new AppearanceModal(toolkit, folder ? "Folder" : "note.md", undefined, target);
 	modal.onOpen();
 	const latestDraft = (): AppearanceRule => previewAppearance.mock.calls.at(-1)?.[1] as AppearanceRule;
-	return { toolkit, currentFolder, modal, latestDraft, setAppearance, previewAppearance };
+	return { toolkit, currentFolder, modal, latestDraft, setAppearance, previewAppearance, promptSavePreset, settings };
 }
 
 describe("AppearanceModal immediate controls", () => {
@@ -352,4 +356,63 @@ it('accepts an unchanged controlling rule after its JSON keys are reordered', as
 	[...h.modal.contentEl.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Save')!.click();
 	await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 	expect(h.setAppearance).toHaveBeenCalledOnce();
+});
+
+
+describe("AppearanceModal saved presets and note tabs", () => {
+	beforeEach(() => {
+		document.body.replaceChildren();
+		installDomHelpers();
+	});
+
+	it("saves the shown draft as a named preset", () => {
+		const { modal, promptSavePreset } = harness(false, { "note.md": { tabs: false } });
+		const button = [...modal.contentEl.querySelectorAll<HTMLButtonElement>(".ft-modal-footer button")].find((candidate) => candidate.textContent === "Save as preset")!;
+		button.click();
+		expect(promptSavePreset).toHaveBeenCalledWith("note.md", { tabs: false }, expect.any(Function));
+		modal.onClose();
+	});
+
+	it("lists saved presets and applies one without folder-only parts on a file", () => {
+		const { toolkit, latestDraft } = harness(false);
+		toolkit.settings.savedPresets = [{
+			id: "p1",
+			name: "Review",
+			rule: {
+				background: { choice: { kind: "preset", slot: 3 }, cascade: true },
+				descendants: { enabled: true, style: "rail" },
+			},
+		}];
+		const modal = new AppearanceModal(toolkit, "note.md");
+		modal.onOpen();
+		const group = [...modal.contentEl.querySelectorAll<HTMLElement>(".ft-appearance-presets__group")].find((candidate) => candidate.querySelector("h4")?.textContent === "Saved presets")!;
+		expect(group).toBeDefined();
+		const button = group.querySelector<HTMLButtonElement>(".ft-appearance-preset")!;
+		expect(button.querySelector(".ft-appearance-preset__label")?.textContent).toBe("Review");
+		button.click();
+		expect(latestDraft()).toEqual({ background: { choice: { kind: "preset", slot: 3 }, cascade: false } });
+		modal.onClose();
+	});
+
+	it("shows no saved preset group when there are none", () => {
+		const { modal } = harness(true);
+		const titles = [...modal.contentEl.querySelectorAll(".ft-appearance-presets__group h4")].map((heading) => heading.textContent);
+		expect(titles).not.toContain("Saved presets");
+		modal.onClose();
+	});
+
+	it("turns note tab colors off for the item and back to inherited", () => {
+		const { modal, latestDraft } = harness(false);
+		const checkbox = () => modal.contentEl.querySelector<HTMLInputElement>(".ft-appearance-tabs input")!;
+		expect(checkbox().checked).toBe(true);
+		expect(modal.contentEl.querySelector(".ft-appearance-tabs")?.textContent).toContain("Default.");
+		checkbox().checked = false;
+		checkbox().dispatchEvent(new Event("change"));
+		expect(latestDraft().tabs).toBe(false);
+		expect(modal.contentEl.querySelector(".ft-appearance-tabs")?.textContent).toContain("Set by this rule.");
+		checkbox().checked = true;
+		checkbox().dispatchEvent(new Event("change"));
+		expect(latestDraft().tabs).toBeUndefined();
+		modal.onClose();
+	});
 });
