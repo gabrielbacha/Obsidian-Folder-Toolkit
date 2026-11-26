@@ -105,6 +105,24 @@ export function buildPreviewTree(container: HTMLElement, path: string, isFolder:
 
 const SAMPLE_ROOT = 'Folder Toolkit sample';
 
+/**
+ * Builds one explorer row for `path`, collapsed if it is a folder. List rows in the
+ * settings use it to show an item, a preset or a name rule in its real style.
+ */
+export function buildSampleRow(container: HTMLElement, name: string, path: string, isFolder: boolean): PreviewTree {
+	const tree = container.createDiv('ft-preview-tree ft-preview-tree--compact ft-preview-tree--row');
+	const rows: PreviewRow[] = [];
+	const { folderRow, fileRow } = rowFactory(rows);
+	if (isFolder) folderRow(tree, name, path, 'root', true);
+	else fileRow(tree, name, path, 'root');
+	return { rows, subfolderOrder: [] };
+}
+
+/** The sample path that `buildSampleRow` uses for a preset or a name rule. */
+export function samplePath(name: string, isFolder: boolean): string {
+	return `${SAMPLE_ROOT}/${isFolder || /\.[a-z0-9]+$/i.test(name) ? name : `${name}.md`}`;
+}
+
 /** A sample name that the rule matches, made from its pattern. */
 export function conditionalSampleName(rule: Pick<ConditionalFormatRule, 'match' | 'pattern'>): string {
 	const pattern = rule.pattern.trim();

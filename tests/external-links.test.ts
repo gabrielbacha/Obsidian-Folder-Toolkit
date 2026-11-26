@@ -4,10 +4,10 @@ import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, MORE_PLUGINS_U
 describe('external links', () => {
   it('uses the exact visible labels and copy', () => {
     expect(ABOUT_AND_FEEDBACK).toEqual({
-      heading: 'About and feedback',
-      name: 'Folder Toolkit by Mindful Apps',
-      description: 'Explore more tools at mindfulapps.xyz.',
-      websiteLabel: 'Visit website',
+      heading: 'About',
+      name: 'Folder Toolkit',
+      description: 'By Mindful Apps',
+      websiteLabel: 'Website',
       morePluginsLabel: 'More plugins',
       featureRequestLabel: 'Request a feature',
       bugReportLabel: 'Report a bug',

@@ -1,276 +1,199 @@
 import { installDomHelpers } from "./dom-helpers";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Setting } from "obsidian";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Setting, TFolder, type SettingDefinition, type SettingDefinitionGroup, type SettingDefinitionItem, type SettingDefinitionList } from "obsidian";
 import FolderToolkitPlugin from "../src/main";
+import { ConditionalRuleModal } from "../src/ui/conditional-rule-modal";
 import { ConfirmRemoveModal } from "../src/ui/confirm-remove-modal";
+import { AppearanceModal } from "../src/ui/appearance-modal";
+import { PresetNameModal } from "../src/ui/preset-name-modal";
 import { FolderToolkitSettingTab } from "../src/ui/settings-tab";
 import type { ConditionalFormatRule, FolderToolkitSettings } from "../src/types";
 
-
-function rule(id: string, pattern: string): ConditionalFormatRule {
-	return { id, target: "folder", match: "equals", pattern, fontEnabled: true, color: { kind: "custom", hex: "#C8C8C8", strength: 100 }, bold: false, strikethrough: false };
+function rule(id: string, pattern: string, extra: Partial<ConditionalFormatRule> = {}): ConditionalFormatRule {
+	return { id, target: "folder", match: "equals", pattern, fontEnabled: true, color: { kind: "custom", hex: "#C8C8C8", strength: 100 }, bold: false, strikethrough: false, ...extra };
 }
 
-function harness(rules = [rule("one", "__system"), rule("two", "_basefiles")]) {
-	const settings: FolderToolkitSettings = { schemaVersion: 6, paletteTemplateId: "default", tabStyle: "off", tabStyleWhenOn: "both", savedPresets: [], appearanceRules: {}, conditionalFormats: rules, hiddenPaths: [], showHiddenItems: false, nestedVaults: false, vaultMarker: 'off' };
-	const removeConditionalFormat = vi.fn().mockResolvedValue(undefined);
-	const addConditionalFormat = vi.fn<() => Promise<string>>();
-	const updateConditionalFormat = vi.fn().mockResolvedValue(undefined);
-	const previewConditionalFormat = vi.fn();
-	const clearConditionalFormatPreview = vi.fn();
-	const duplicateConditionalFormat = vi.fn<(id: string) => Promise<string | null>>().mockResolvedValue("copy");
-	const loadedFiles: Array<{ path: string; name: string }> = [];
-	const toolkit = Object.assign(Object.create(FolderToolkitPlugin.prototype), {
-		app: { vault: { getAllLoadedFiles: () => loadedFiles } }, settings,
-		duplicateConditionalFormat,
-		addConditionalFormat, updateConditionalFormat,
-		previewConditionalFormat, clearConditionalFormatPreview,
-		moveConditionalFormat: vi.fn().mockResolvedValue(undefined), removeConditionalFormat,
-	}) as FolderToolkitPlugin;
-	const tab = new FolderToolkitSettingTab(toolkit);
-	const update = vi.fn();
-	Object.assign(tab, { update });
-	const conditionalRenderer = tab as unknown as { renderConditionalFormats(setting: Setting): () => void };
-	const render = () => {
-		const settingEl = document.createElement("div");
-		document.body.append(settingEl);
-		const controlEl = settingEl.createDiv();
-		const setting = { settingEl, controlEl, setName() { return this; }, setHeading() { return this; } } as unknown as Setting;
-		const cleanup = conditionalRenderer.renderConditionalFormats(setting);
-		return { settingEl, cleanup };
+function folder(path: string): TFolder {
+	return Object.assign(new TFolder(), { path, name: path.split("/").at(-1) });
+}
+
+function harness(overrides: Partial<FolderToolkitSettings> = {}) {
+	const settings: FolderToolkitSettings = {
+		schemaVersion: 8, paletteTemplateId: "default", tabStyle: "both", tabStyleWhenOn: "both", savedPresets: [],
+		appearanceRules: {}, conditionalFormats: [rule("one", "__system"), rule("two", "_basefiles", { match: "endsWith" })],
+		hiddenPaths: [], showHiddenItems: false, nestedVaults: false, vaultMarker: "both", ...overrides,
 	};
-	return { toolkit, tab, update, render, duplicateConditionalFormat, loadedFiles, removeConditionalFormat, addConditionalFormat, updateConditionalFormat, previewConditionalFormat, clearConditionalFormatPreview, settings };
+	const files: Array<{ path: string; name: string }> = [folder("__system"), { path: "Projects/Plan.md", name: "Plan.md" }];
+	const toolkit = {
+		addConditionalFormat: vi.fn<() => Promise<string>>(),
+		reorderConditionalFormat: vi.fn().mockResolvedValue(undefined),
+		removeConditionalFormat: vi.fn().mockResolvedValue(undefined),
+		unhidePath: vi.fn().mockResolvedValue(undefined),
+		setNestedVaults: vi.fn(async (value: boolean) => { settings.nestedVaults = value; }),
+		setTabStyle: vi.fn().mockResolvedValue(undefined),
+		setShowHiddenItems: vi.fn().mockResolvedValue(undefined),
+	};
+	const plugin = Object.assign(Object.create(FolderToolkitPlugin.prototype), {
+		settings,
+		manifest: { version: "1.9.0" },
+		app: { vault: { getAllLoadedFiles: () => files, getAbstractFileByPath: (path: string) => files.find((file) => file.path === path) ?? null } },
+		missingAppearanceRoots: () => [],
+		managedPathsRevision: () => "1",
+		...toolkit,
+	}) as FolderToolkitPlugin;
+	const tab = new FolderToolkitSettingTab(plugin);
+	const update = vi.fn();
+	const refreshDomState = vi.fn();
+	Object.assign(tab, { update, refreshDomState });
+	const definitions = () => tab.getSettingDefinitions();
+	const section = (heading: string) => definitions().find((item) => "heading" in item && item.heading === heading) as SettingDefinitionGroup & SettingDefinitionList;
+	return { toolkit, tab, settings, files, update, refreshDomState, definitions, section };
 }
 
-describe("name-rule settings UI", () => {
+/** Renders one definition the way Obsidian does: name and description first, then `render`. */
+function renderItem(item: SettingDefinitionItem | undefined): Setting {
+	const definition = item as SettingDefinition & { render: (setting: Setting) => void };
+	const setting = new Setting(document.body);
+	setting.setName(definition.name);
+	if (typeof definition.desc === "string") setting.setDesc(definition.desc);
+	definition.render(setting);
+	return setting;
+}
+
+const extraButton = (setting: Setting, label: string) => setting.controlEl.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
+
+describe("settings tab", () => {
 	beforeEach(() => {
 		document.body.replaceChildren();
 		installDomHelpers();
 		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
 	});
+	afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-	it("renders compact accessible summaries and allows multiple expanded editors", () => {
-		const { render, update } = harness();
-		const first = render();
-		const disclosures = [...first.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-disclosure")];
-		expect(disclosures).toHaveLength(2);
-		expect(disclosures.every((button) => button.getAttribute("aria-expanded") === "false")).toBe(true);
-		disclosures[0]?.click();
-		disclosures[1]?.click();
-		expect(update).toHaveBeenCalledTimes(2);
-		first.cleanup?.();
-
-		const expanded = render();
-		expect(expanded.settingEl.querySelectorAll(".ft-conditional-editor")).toHaveLength(2);
-		expect(expanded.settingEl.querySelectorAll(".ft-shared-style-grid")).toHaveLength(2);
-		expect(expanded.settingEl.querySelectorAll(".ft-style-toggle[aria-pressed]")).toHaveLength(4);
-		expect([...expanded.settingEl.querySelectorAll(".ft-color-card--border")]).toHaveLength(2);
-		expect([...expanded.settingEl.querySelectorAll(".ft-shared-style-grid")[0].querySelectorAll(".ft-card-title")].map((heading) => heading.textContent)).toEqual(["Background", "Border", "Text"]);
-		expanded.cleanup?.();
+	it("builds native groups and lists in order", () => {
+		const { definitions } = harness();
+		const items = definitions();
+		expect(items.map((item) => ("heading" in item ? item.heading : undefined) ?? null)).toEqual(["Appearance", "Presets", "Name rules", "Styled items", null, "Hidden items", "Nested vaults", "About"]);
+		expect(items.map((item) => ("type" in item ? item.type : null))).toEqual(["group", "list", "list", "list", "group", "list", "group", "group"]);
+		expect((items[4] as SettingDefinitionGroup).visible).toBe(false);
+		const about = (items[7] as SettingDefinitionGroup).items?.[0] as SettingDefinition;
+		expect(about.name).toBe("Folder Toolkit 1.9.0");
+		expect(about.desc).toBe("By Mindful Apps");
 	});
 
-	it("enables and summarizes a conditional border", () => {
-		const borderRule = rule("border", "archive");
-		borderRule.target = "file";
-		borderRule.borderEnabled = true;
-		borderRule.border = { style: "rail", color: { kind: "custom", hex: "#C8C8C8", strength: 75 }, thickness: "medium" };
-		const { render, tab } = harness([borderRule]);
-		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("border");
-		const view = render();
-		expect(view.settingEl.textContent).toContain("Border · Rail");
-		const borderCard = view.settingEl.querySelector<HTMLElement>(".ft-conditional-editor .ft-color-card--border")!;
-		const toggle = borderCard.querySelector<HTMLInputElement>("input[type=checkbox]")!;
-		expect(toggle.checked).toBe(true);
-		expect([...borderCard.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Medium")?.getAttribute("aria-pressed")).toBe("true");
-		view.cleanup?.();
+	it("shows each name rule as a sentence with a styled sample and its match count", () => {
+		const { section } = harness();
+		const rules = section("Name rules");
+		expect(rules.items?.map((item) => (item as SettingDefinition).name)).toEqual(["Folders named exactly “__system”", "Folders ending with “_basefiles”"]);
+		const row = renderItem(rules.items?.[0]);
+		const sample = row.descEl.querySelector(".ft-preview-tree--row .ft-live-preview__row");
+		expect(sample?.textContent).toBe("__system");
+		expect(sample?.classList.contains("ft-preview-has-text")).toBe(true);
+		expect(row.descEl.querySelector(".ft-list-row__meta")?.textContent).toBe("1 match");
+		expect(renderItem(rules.items?.[1]).descEl.querySelector(".ft-list-row__meta")?.textContent).toBe("No matches");
 	});
 
-	it("edits a draft and saves the rule only after Save", async () => {
-		const borderRule = rule("border", "archive");
-		const { render, tab, settings, update, updateConditionalFormat, previewConditionalFormat, clearConditionalFormatPreview } = harness([borderRule]);
-		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("border");
-		const view = render();
-		const save = [...view.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-footer button")].find((button) => button.textContent === "Save")!;
-		expect(save.disabled).toBe(true);
-		const borderCard = view.settingEl.querySelector<HTMLElement>(".ft-conditional-editor .ft-color-card--border")!;
-		const toggle = borderCard.querySelector<HTMLInputElement>("input[type=checkbox]")!;
-		expect(toggle.checked).toBe(false);
-		expect(borderCard.querySelector<HTMLButtonElement>(".ft-swatch")?.disabled).toBe(true);
-		toggle.checked = true;
-		toggle.dispatchEvent(new Event("change"));
-		expect(settings.conditionalFormats[0]?.borderEnabled).toBeUndefined();
-		expect(previewConditionalFormat.mock.lastCall?.[0]).toMatchObject({ borderEnabled: true });
-		expect(update).toHaveBeenCalled();
-		view.cleanup?.();
-
-		const rerendered = render();
-		expect(rerendered.settingEl.querySelector(".ft-conditional-status")?.textContent).toBe("Unsaved changes");
-		expect(rerendered.settingEl.querySelector<HTMLElement>(".ft-style-badge--unsaved")?.hidden).toBe(false);
-		const saveAgain = [...rerendered.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-footer button")].find((button) => button.textContent === "Save")!;
-		expect(saveAgain.disabled).toBe(false);
-		saveAgain.click();
-		await Promise.resolve();
-		expect(updateConditionalFormat.mock.lastCall?.[0]).toBe("border");
-		expect(updateConditionalFormat.mock.lastCall?.[1]).toMatchObject({ borderEnabled: true, border: { style: "box", thickness: "thin" } });
-		expect(clearConditionalFormatPreview).toHaveBeenCalledWith("border");
-		rerendered.cleanup?.();
+	it("opens the rule editor from the row and from its edit button", () => {
+		const open = vi.spyOn(ConditionalRuleModal.prototype, "open").mockImplementation(() => {});
+		const row = renderItem(harness().section("Name rules").items?.[0]);
+		extraButton(row, "Edit rule").click();
+		row.nameEl.click();
+		expect(open).toHaveBeenCalledTimes(2);
 	});
 
-	it("discards a draft on Cancel without saving", () => {
-		const { render, tab, updateConditionalFormat, clearConditionalFormatPreview } = harness([rule("one", "__system")]);
-		(tab as unknown as { expandedConditionalIds: Set<string> }).expandedConditionalIds.add("one");
-		const view = render();
-		const pattern = view.settingEl.querySelector<HTMLInputElement>(".ft-conditional-editor input[type=text]")!;
-		pattern.value = "__archive";
-		pattern.dispatchEvent(new Event("input"));
-		expect(view.settingEl.querySelector(".ft-conditional-summary__pattern")?.textContent).toBe("__archive");
-		const cancel = [...view.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-footer button")].find((button) => button.textContent === "Cancel")!;
-		expect(cancel.disabled).toBe(false);
-		cancel.click();
-		expect(clearConditionalFormatPreview).toHaveBeenCalledWith("one");
-		expect(updateConditionalFormat).not.toHaveBeenCalled();
-		view.cleanup?.();
-		const fresh = render();
-		expect(fresh.settingEl.querySelector<HTMLInputElement>(".ft-conditional-editor input[type=text]")?.value).toBe("__system");
-		fresh.cleanup?.();
-	});
+	it("reorders, deletes after confirmation, and adds name rules", async () => {
+		const { section, toolkit, settings, update } = harness();
+		const open = vi.spyOn(ConditionalRuleModal.prototype, "open").mockImplementation(() => {});
+		const confirm = vi.spyOn(ConfirmRemoveModal.prototype, "open").mockImplementation(() => {});
+		const rules = section("Name rules");
+		rules.onReorder?.(0, 1);
+		expect(toolkit.reorderConditionalFormat).toHaveBeenCalledWith(0, 1);
+		rules.onDelete?.(1);
+		expect(confirm).toHaveBeenCalledOnce();
+		expect(toolkit.removeConditionalFormat).not.toHaveBeenCalled();
 
-	it("opens and focuses a newly added rule", async () => {
-		const { render, addConditionalFormat, settings } = harness([]);
-		addConditionalFormat.mockImplementation(async () => {
-			settings.conditionalFormats.push(rule("new", ""));
-			return "new";
-		});
-		const empty = render();
-		empty.settingEl.querySelector<HTMLButtonElement>(".ft-conditional-add")!.click();
-		await Promise.resolve();
-		empty.cleanup?.();
-		empty.settingEl.remove();
-
-		const added = render();
-		const pattern = added.settingEl.querySelector<HTMLInputElement>(".ft-conditional-editor input[type=text]");
-		expect(pattern).not.toBeNull();
-		expect(document.activeElement).toBe(pattern);
-		added.cleanup?.();
-		added.settingEl.remove();
-	});
-
-	it("scrolls to the name rules on the next render after a reveal request", () => {
-		const { tab, render } = harness();
-		Object.assign(tab, { containerEl: document.createElement("div") });
-		const scroll = vi.fn();
-		HTMLElement.prototype.scrollIntoView = scroll;
-		tab.revealConditionalFormats();
-		expect(scroll).not.toHaveBeenCalled();
-		const first = render();
-		expect(scroll).toHaveBeenCalledOnce();
-		first.cleanup?.();
-		render().cleanup?.();
-		expect(scroll).toHaveBeenCalledOnce();
-	});
-
-	it("scrolls immediately when the name rules are already on screen", () => {
-		const { tab, render } = harness();
-		const view = render();
-		Object.assign(tab, { containerEl: document.body });
-		const scroll = vi.fn();
-		HTMLElement.prototype.scrollIntoView = scroll;
-		tab.revealConditionalFormats();
-		expect(scroll).toHaveBeenCalledOnce();
-		view.cleanup?.();
-	});
-
-	it("disables unavailable moves and asks for confirmation before deletion", () => {
-		const { render, removeConditionalFormat } = harness([rule("one", "__system")]);
-		const open = vi.spyOn(ConfirmRemoveModal.prototype, "open");
-		const view = render();
-		const actions = [...view.settingEl.querySelectorAll<HTMLButtonElement>(".ft-conditional-actions button")];
-		expect(actions[0]?.disabled).toBe(true);
-		expect(actions[1]?.disabled).toBe(true);
-		expect(actions[2]?.classList.contains("ft-conditional-duplicate")).toBe(true);
-		actions[3]?.click();
-		expect(open).toHaveBeenCalledOnce();
-		expect(removeConditionalFormat).not.toHaveBeenCalled();
-		view.cleanup?.();
-		open.mockRestore();
-	});
-
-	it("duplicates a rule and opens the copy for editing", async () => {
-		const { render, duplicateConditionalFormat, update } = harness([rule("one", "__system")]);
-		const view = render();
-		view.settingEl.querySelector<HTMLButtonElement>(".ft-conditional-duplicate")!.click();
+		toolkit.addConditionalFormat.mockImplementation(async () => { settings.conditionalFormats.push(rule("new", "")); return "new"; });
+		rules.addItem?.action(document.createElement("div"));
 		await Promise.resolve(); await Promise.resolve();
-		expect(duplicateConditionalFormat).toHaveBeenCalledWith("one");
 		expect(update).toHaveBeenCalled();
-		view.cleanup?.();
-		const reopened = render();
-		expect(reopened.settingEl.querySelectorAll(".ft-conditional-card.is-expanded")).toHaveLength(0);
-		reopened.cleanup?.();
+		expect(open).toHaveBeenCalledOnce();
+		expect(section("Name rules").items?.map((item) => (item as SettingDefinition).name).at(-1)).toBe("Folders with no name yet");
 	});
 
-	it("previews a rule on matching sample rows and repaints while typing", () => {
-		const { render, loadedFiles } = harness([{ ...rule("one", "Draft"), match: "startsWith", target: "both", backgroundEnabled: true, backgroundColor: { kind: "custom", hex: "#E67E22", strength: 20 } }]);
-		loadedFiles.push({ path: "Draft plan.md", name: "Draft plan.md" }, { path: "Other.md", name: "Other.md" });
-		const collapsed = render();
-		collapsed.settingEl.querySelector<HTMLButtonElement>(".ft-conditional-disclosure")!.click();
-		collapsed.cleanup?.();
-		const view = render();
-		const names = () => [...view.settingEl.querySelectorAll(".ft-conditional-preview .ft-live-preview__name")].map((element) => element.textContent);
-		expect(names()).toEqual(["Draft notes", "Draft notes", "Other note"]);
-		const rows = [...view.settingEl.querySelectorAll<HTMLElement>(".ft-conditional-preview .ft-live-preview__row")];
-		expect(rows[0]?.classList.contains("ft-preview-has-text")).toBe(true);
-		expect(rows[1]?.classList.contains("ft-preview-has-background")).toBe(true);
-		expect(rows[2]?.classList.contains("ft-preview-has-text")).toBe(false);
-		expect(rows[2]?.classList.contains("ft-preview-has-background")).toBe(false);
-		expect(view.settingEl.querySelector(".ft-conditional-preview__matches")?.textContent).toBe("Matches 1 item in this vault: Draft plan.md");
-
-		const pattern = view.settingEl.querySelector<HTMLInputElement>('input[aria-label="Name pattern"]')!;
-		pattern.focus();
-		pattern.value = "Idea";
-		pattern.dispatchEvent(new Event("input"));
-		expect(names()).toEqual(["Idea notes", "Idea notes", "Other note"]);
-		expect(document.activeElement).toBe(pattern);
-		pattern.value = "";
-		pattern.dispatchEvent(new Event("input"));
-		expect(view.settingEl.querySelector(".ft-conditional-preview__hint")?.textContent).toBe("Type a pattern to see a preview.");
-		view.cleanup?.();
+	it("lists styled items in their own style, searchable by path", () => {
+		const { section } = harness({ appearanceRules: { "Projects/Plan.md": { text: { color: { kind: "preset", slot: 2 }, bold: true, strikethrough: false, cascade: false } }, __system: { tabs: false } } });
+		const list = section("Styled items");
+		expect(list.items?.map((item) => (item as SettingDefinition).name)).toEqual(["Projects/Plan.md", "__system"]);
+		expect(list.search?.match(list.items?.[0] as SettingDefinition, "plan")).toBe(true);
+		expect(list.search?.match(list.items?.[1] as SettingDefinition, "plan")).toBe(false);
+		const row = renderItem(list.items?.[0]);
+		const sample = row.nameEl.querySelector(".ft-live-preview__row");
+		expect(sample?.textContent).toBe("Plan");
+		expect(sample?.classList.contains("ft-preview-is-bold")).toBe(true);
+		expect(row.descEl.textContent).toBe("Projects");
+		const edit = vi.spyOn(AppearanceModal.prototype, "open").mockImplementation(() => {});
+		extraButton(row, "Edit appearance").click();
+		expect(edit).toHaveBeenCalledOnce();
+		const confirm = vi.spyOn(ConfirmRemoveModal.prototype, "open").mockImplementation(() => {});
+		list.onDelete?.(0);
+		expect(confirm).toHaveBeenCalledOnce();
 	});
-});
 
-it("retains a newer conditional draft while an earlier save is pending", async () => {
-	installDomHelpers(); const h = harness(); const rendered = h.render();
-	rendered.settingEl.querySelector<HTMLButtonElement>('.ft-conditional-disclosure')!.click(); const editor = h.render();
-	const pattern = editor.settingEl.querySelector<HTMLInputElement>('input[aria-label="Name pattern"]')!; pattern.value = 'first'; pattern.dispatchEvent(new Event('input'));
-	let complete!: () => void; h.updateConditionalFormat.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
-	editor.settingEl.querySelector<HTMLButtonElement>('.ft-conditional-footer .mod-cta')!.click();
-	pattern.value = 'newer'; pattern.dispatchEvent(new Event('input'));
-	const rebuilt = h.render(); expect(rebuilt.settingEl.querySelector<HTMLButtonElement>('.ft-conditional-footer .mod-cta')!.disabled).toBe(true);
-	complete(); await Promise.resolve(); await Promise.resolve();
-	const final = h.render(); expect(final.settingEl.querySelector<HTMLInputElement>('input[aria-label="Name pattern"]')!.value).toBe('newer');
-});
+	it("shows hidden items with an unhide button under the reveal switch", async () => {
+		const empty = harness().section("Hidden items");
+		expect((empty.items?.[0] as SettingDefinition).desc).toContain("Nothing is hidden yet");
+		const { section, toolkit, update } = harness({ hiddenPaths: ["__system"] });
+		const list = section("Hidden items");
+		expect(list.items).toHaveLength(2);
+		const row = renderItem(list.items?.[1]);
+		expect(row.nameEl.textContent).toBe("__system");
+		expect(row.descEl.textContent).toBe("Folder");
+		extraButton(row, "Unhide").click();
+		await Promise.resolve();
+		expect(toolkit.unhidePath).toHaveBeenCalledWith("__system");
+		expect(update).toHaveBeenCalled();
+	});
 
-it('keeps large appearance lists reachable through bounded pages and reuses unchanged cards during search', () => {
-	installDomHelpers();
-	const { tab, settings } = harness([]);
-	for (let index = 0; index < 230; index++) settings.appearanceRules[`Rule ${String(index).padStart(3, '0')}`] = {};
-	const toolkit = (tab as unknown as { toolkit: FolderToolkitPlugin }).toolkit;
-	Object.assign(toolkit, { app: { vault: { getAbstractFileByPath: (path: string) => ({ path }) } }, missingAppearanceRoots: () => [] });
-	const settingEl = document.createElement('div'); document.body.append(settingEl);
-	const controlEl = document.createElement('div'); settingEl.append(controlEl);
-	const setting = { settingEl, controlEl, setName() { return this; }, setHeading() { return this; } } as unknown as Setting;
-	const render = tab as unknown as { renderPathManager(setting: Setting): () => void };
-	const cleanup = render.renderPathManager(setting);
-	const search = settingEl.querySelector<HTMLInputElement>('input[type=search]')!;
-	const firstCard = settingEl.querySelector('.ft-rule-card');
-	search.value = 'Rule'; search.dispatchEvent(new Event('input'));
-	expect(settingEl.querySelector('.ft-rule-card')).toBe(firstCard);
-	expect(settingEl.querySelectorAll('.ft-rule-card')).toHaveLength(100);
-	settingEl.querySelector<HTMLButtonElement>('button[aria-label="Next appearance rules"]')!.click();
-	expect(settingEl.textContent).toContain('Showing 101–200 of 230.');
-	settingEl.querySelector<HTMLButtonElement>('button[aria-label="Next appearance rules"]')!.click();
-	expect(settingEl.querySelectorAll('.ft-rule-card')).toHaveLength(30);
-	expect(document.activeElement?.getAttribute('aria-label')).toBe('Previous appearance rules');
-	search.value = 'Rule 229'; search.dispatchEvent(new Event('input'));
-	expect(settingEl.querySelectorAll('.ft-rule-card')).toHaveLength(1); expect(settingEl.textContent).toContain('Rule 229');
-	cleanup();
+	it("shows the vault marker only while nested vaults are on", async () => {
+		const { section, refreshDomState } = harness();
+		const group = section("Nested vaults");
+		const marker = group.items?.[1] as SettingDefinition & { visible: () => boolean };
+		expect(marker.visible()).toBe(false);
+		const toggle = renderItem(group.items?.[0]).controlEl.querySelector<HTMLElement>(".checkbox-container")!;
+		toggle.click();
+		await Promise.resolve(); await Promise.resolve();
+		expect(marker.visible()).toBe(true);
+		expect(refreshDomState).toHaveBeenCalled();
+	});
+
+	it("shows presets with a styled sample, rename and delete", () => {
+		const { section } = harness({ savedPresets: [{ id: "p1", name: "Review", rule: { text: { color: { kind: "preset", slot: 1 }, bold: true, strikethrough: false, cascade: false } } }] });
+		const list = section("Presets");
+		const row = renderItem(list.items?.[0]);
+		expect(row.nameEl.textContent).toBe("Review");
+		const sample = row.descEl.querySelector(".ft-live-preview__row");
+		expect(sample?.textContent).toBe("Example folder");
+		expect(sample?.classList.contains("ft-preview-has-text")).toBe(true);
+		const rename = vi.spyOn(PresetNameModal.prototype, "open").mockImplementation(() => {});
+		extraButton(row, "Rename").click();
+		expect(rename).toHaveBeenCalledOnce();
+		const confirm = vi.spyOn(ConfirmRemoveModal.prototype, "open").mockImplementation(() => {});
+		list.onDelete?.(0);
+		expect(confirm).toHaveBeenCalledOnce();
+	});
+
+	it("scrolls to the name rules once they are on screen", () => {
+		const { tab } = harness();
+		const scroll = vi.fn();
+		HTMLElement.prototype.scrollIntoView = scroll;
+		let frames: FrameRequestCallback[] = [];
+		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+		tab.revealConditionalFormats();
+		const run = () => { const pending = frames; frames = []; for (const frame of pending) frame(0); };
+		run();
+		expect(scroll).not.toHaveBeenCalled();
+		tab.containerEl.createDiv("ft-name-rules");
+		run();
+		expect(scroll).toHaveBeenCalledOnce();
+	});
 });

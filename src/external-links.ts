@@ -4,10 +4,10 @@ export const BUG_REPORT_URL = 'https://github.com/gabrielbacha/Obsidian-Folder-T
 export const MORE_PLUGINS_URL = 'https://mindfulapps.xyz/obsidian/?utm_source=obsidian_app&utm_medium=referral&utm_campaign=obsidian_assets';
 
 export const ABOUT_AND_FEEDBACK = {
-  heading: 'About and feedback',
-  name: 'Folder Toolkit by Mindful Apps',
-  description: 'Explore more tools at mindfulapps.xyz.',
-  websiteLabel: 'Visit website',
+  heading: 'About',
+  name: 'Folder Toolkit',
+  description: 'By Mindful Apps',
+  websiteLabel: 'Website',
   morePluginsLabel: 'More plugins',
   featureRequestLabel: 'Request a feature',
   bugReportLabel: 'Report a bug',

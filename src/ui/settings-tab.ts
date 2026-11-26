@@ -1,31 +1,27 @@
-import { PluginSettingTab, Setting, TFolder, setIcon, type SettingDefinitionItem } from 'obsidian';
-import { PALETTE_TEMPLATES, paletteTemplate, resolveChoice } from '../colors';
-import { AppearanceControlRenderer } from './appearance-controls';
-import { isBackgroundEnabled, isBorderEnabled, isFontEnabled, matchesConditionalFormat } from '../conditional-format';
+import { PluginSettingTab, TFolder, setIcon, type Setting, type SettingDefinition, type SettingDefinitionItem, type TAbstractFile } from 'obsidian';
+import { PALETTE_TEMPLATES, paletteTemplate } from '../colors';
 import type FolderToolkitPlugin from '../main';
-import type { MissingRoot } from '../rule-transfer';
-import type { AppearanceRule, ColorChoice, ConditionalFormatRule, ConditionalMatch, ConditionalTarget } from '../types';
+import type { AppearanceRule, ConditionalFormatRule, SavedPreset } from '../types';
 import { AppearanceModal } from './appearance-modal';
+import { ConditionalRuleModal, conditionalMatches, describeConditionalRule, matchCountLabel } from './conditional-rule-modal';
 import { ConfirmRemoveModal } from './confirm-remove-modal';
+import { MissingItemsModal } from './missing-items-modal';
 import { PresetNameModal } from './preset-name-modal';
-import { buildConditionalSample, styleConditionalSample } from './preview-tree';
-import { MISSING_ITEMS_HINT, renderMissingItemCards } from './missing-items-modal';
-import DEFAULT_APPEARANCE_STRENGTH from '../appearance-tokens.json';
+import { buildSampleRow, conditionalSampleName, samplePath, styleConditionalSample, stylePreviewRows, stylePreviewTree } from './preview-tree';
 import { ManagedPathIndex } from '../managed-path-index';
 import { containingPathIndex } from '../path-utils';
 import { replaceOwnedRoot } from './dom-lifecycle';
 import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, MORE_PLUGINS_URL, WEBSITE_URL } from '../external-links';
 
+const PRESET_SAMPLE_NAME = 'Example folder';
+
+/**
+ * The plugin's settings, built from Obsidian's own groups and lists so the tab looks
+ * and searches like the app's settings. Each definition's `name` and `desc` are what
+ * the page shows and what settings search finds.
+ */
 export class FolderToolkitSettingTab extends PluginSettingTab {
-	private readonly savingConditionalIds = new Set<string>();
-	private search = '';
 	private readonly managedIndex = new ManagedPathIndex();
-	private readonly pathPages = new Map<string, number>();
-	private readonly expandedConditionalIds = new Set<string>();
-	private pendingConditionalFocusId: string | null = null;
-	private pendingConditionalReveal = false;
-	/** Unsaved edits to name rules, keyed by rule id. Saved rules stay untouched until Save. */
-	private readonly conditionalDrafts = new Map<string, ConditionalFormatRule>();
 
 	constructor(private readonly toolkit: FolderToolkitPlugin) {
 		super(toolkit.app, toolkit);
@@ -33,148 +29,318 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
-			{
-				name: ABOUT_AND_FEEDBACK.heading,
-				render: (setting) => { setting.setName(ABOUT_AND_FEEDBACK.heading).setHeading(); },
-			},
-			{
-				name: ABOUT_AND_FEEDBACK.name,
-				desc: ABOUT_AND_FEEDBACK.description,
-				render: (setting) => {
-					setting
-						.setName(ABOUT_AND_FEEDBACK.name)
-						.setDesc(ABOUT_AND_FEEDBACK.description)
-						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.websiteLabel).setCta().onClick(() => openExternalLink(WEBSITE_URL)))
-						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.morePluginsLabel).onClick(() => openExternalLink(MORE_PLUGINS_URL)))
-						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.featureRequestLabel).onClick(() => openExternalLink(FEATURE_REQUEST_URL)))
-						.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.bugReportLabel).onClick(() => openExternalLink(BUG_REPORT_URL)));
-				},
-			},
-			{
-				name: 'Appearance',
-				desc: 'Choose the shared palette and how styling carries into open note tabs.',
-				aliases: ['colors', 'style'],
-				render: (setting) => { setting.setName('Appearance').setHeading(); },
-			},
-			{
-				name: 'Color palette',
-				desc: 'Changing the template recolors palette assignments. Custom colors stay unchanged.',
-				aliases: ['colors', 'template', 'appearance'],
-				render: (setting) => this.renderPalette(setting),
-			},
-			{
-				name: 'Open note tabs',
-				desc: 'Color open-note titles and optionally their background or border.',
-				aliases: ['tab background', 'tab border', 'open notes'],
-				render: (setting) => this.renderTabStyle(setting),
-			},
-			{
-				name: 'Saved presets',
-				desc: 'Rename or remove the appearance presets you saved with a name.',
-				aliases: ['presets', 'quick presets', 'styles'],
-				render: (setting) => this.renderSavedPresets(setting),
-			},
-			{
-				name: 'Nested vaults',
-				desc: 'Show and save folder appearance in the vault folders inside this vault.',
-				aliases: ['vault inside vault', 'nested', 'sub vault'],
-				render: (setting) => this.renderNestedVaultsToggle(setting),
-			},
-			{
-				name: 'Vault marker',
-				desc: 'Mark folders that are themselves vaults with an icon, a border, or both.',
-				aliases: ['nested', 'vault icon', 'vault border'],
-				render: (setting) => this.renderVaultMarker(setting),
-			},
-			{
-				name: 'Conditional formatting',
-				desc: 'Style matching file and folder names with the same text, background, and border controls used for direct editing.',
-				aliases: ['name rules', 'starts with', 'folder shading', 'file shading', 'file border', 'folder border'],
-				render: (setting) => this.renderConditionalFormats(setting),
-			},
-			{
-				name: 'Visibility',
-				desc: 'Reveal or manage items hidden by Folder Toolkit.',
-				aliases: ['hidden', 'files', 'folders'],
-				render: (setting) => { setting.setName('Visibility').setHeading(); },
-			},
-			{
-				name: 'Show hidden items',
-				desc: 'Temporarily reveal items marked as permanently hidden.',
-				aliases: ['files', 'folders', 'visibility'],
-				render: (setting) => this.renderHiddenToggle(setting),
-			},
-			{
-				name: 'Managed paths',
-				desc: 'Search, edit, and remove saved appearance and hiding rules.',
-				aliases: ['appearance rules', 'hidden paths', 'files', 'folders'],
-				render: (setting) => this.renderPathManager(setting),
-			},
+			this.appearanceGroup(),
+			this.presetList(),
+			this.nameRuleList(),
+			this.styledItemList(),
+			this.missingItemsGroup(),
+			this.hiddenItemList(),
+			this.nestedVaultGroup(),
+			this.aboutGroup(),
 		];
 	}
 
-	private renderTabStyle(setting: Setting): void {
-		setting.controlEl.empty();
-		setting
-			.setName('Open note tabs')
-			.setDesc('Text color styles the title. The background uses the note\'s background color. The border uses its border color, or its background color when it has no border. Each file or folder can opt out in its appearance editor.')
-			.addDropdown((dropdown) => dropdown
-				.addOption('off', 'Off')
-				.addOption('background', 'Colored background')
-				.addOption('border', 'Colored border')
-				.addOption('both', 'Colored background and border')
-				.setValue(this.toolkit.settings.tabStyle)
-				.onChange(async (value) => {
-					await this.toolkit.setTabStyle(value);
-					this.update();
-				}));
+	/** Scrolls to the name rules once the tab has rendered them. */
+	revealConditionalFormats(attempts = 5): void {
+		window.requestAnimationFrame(() => {
+			const section = this.containerEl.querySelector<HTMLElement>('.ft-name-rules');
+			if (section) section.scrollIntoView({ block: 'start' });
+			else if (attempts > 1) this.revealConditionalFormats(attempts - 1);
+		});
 	}
 
-	private renderSavedPresets(setting: Setting): () => void {
-		setting.setName('Saved presets').setDesc('Save a preset from the appearance editor or from the appearance submenu in the file menu.');
-		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-saved-presets');
-		const presets = this.toolkit.settings.savedPresets ?? [];
-		if (presets.length === 0) wrapper.createDiv({ text: 'No saved presets yet.', cls: 'ft-empty-state' });
-		for (const preset of presets) {
-			const row = wrapper.createDiv('ft-saved-preset');
-			row.createSpan({ text: preset.name, cls: 'ft-saved-preset__name' });
-			const badges = row.createSpan('ft-conditional-summary__badges');
-			const rule = preset.rule;
-			if (rule.text?.color && rule.text.color.kind !== 'none') this.renderStyleBadge(badges, 'Text', rule.text.color);
-			if (rule.background && rule.background.choice.kind !== 'none') this.renderStyleBadge(badges, 'Background', rule.background.choice);
-			if (rule.border && !('kind' in rule.border)) this.renderStyleBadge(badges, rule.border.style === 'box' ? 'Border · Box' : 'Border · Rail', rule.border.color);
-			if (rule.text?.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
-			if (rule.text?.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
-			if (rule.tabs === false) badges.createSpan({ text: 'No tabs', cls: 'ft-style-badge' });
-			const actions = row.createDiv('ft-conditional-actions');
-			const rename = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Rename preset ${preset.name}`, title: 'Rename' } });
-			setIcon(rename, 'pencil');
-			rename.addEventListener('click', () => {
-				new PresetNameModal(this.toolkit.app, {
-					title: 'Rename preset',
-					initialName: preset.name,
-					submitLabel: 'Rename',
-					onSubmit: async (name) => { await this.toolkit.renamePreset(preset.id, name); this.update(); },
-				}).open();
-			});
-			const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove preset ${preset.name}`, title: 'Remove' } });
-			setIcon(remove, 'trash-2');
-			remove.addEventListener('click', () => {
-				new ConfirmRemoveModal(this.toolkit.app, preset.name, async () => {
-					await this.toolkit.deletePreset(preset.id);
-					this.update();
-				}, {
-					title: 'Remove preset?',
-					description: 'This removes the saved preset. Files and folders that use its style keep it.',
-					confirmLabel: 'Remove preset',
-				}).open();
-			});
+	openRuleEditor(id: string, isNew = false): void {
+		new ConditionalRuleModal(this.toolkit, id, { isNew, onClose: () => this.update() }).open();
+	}
+
+	private appearanceGroup(): SettingDefinitionItem {
+		return {
+			type: 'group',
+			heading: 'Appearance',
+			items: [
+				{
+					name: 'Color palette',
+					desc: 'The colors every color picker offers. Custom colors stay as they are.',
+					aliases: ['colors', 'template', 'appearance'],
+					render: (setting) => this.renderPalette(setting),
+				},
+				{
+					name: 'Note tab colors',
+					desc: 'Show item colors on open note tabs. Text color is always included.',
+					aliases: ['open note tabs', 'tab background', 'tab border'],
+					render: (setting) => {
+						setting.addDropdown((dropdown) => dropdown
+							.addOptions({ off: 'Off', background: 'Background', border: 'Border', both: 'Background and border' })
+							.setValue(this.toolkit.settings.tabStyle)
+							.onChange(async (value) => { await this.toolkit.setTabStyle(value); }));
+					},
+				},
+			],
+		};
+	}
+
+	private presetList(): SettingDefinitionItem {
+		const presets = [...(this.toolkit.settings.savedPresets ?? [])];
+		return {
+			type: 'list',
+			heading: 'Presets',
+			cls: 'ft-presets',
+			emptyState: 'No presets yet. Save one from the appearance editor, or from Appearance in the file menu.',
+			onDelete: (index) => { const preset = presets[index]; if (preset) this.confirmDeletePreset(preset); },
+			items: presets.map((preset): SettingDefinition => ({
+				name: preset.name,
+				aliases: ['preset'],
+				render: (setting) => {
+					this.renderPresetSample(setting.descEl, preset.rule);
+					setting.addExtraButton((button) => button.setIcon('pencil').setTooltip('Rename').onClick(() => this.renamePreset(preset)));
+				},
+			})),
+		};
+	}
+
+	private nameRuleList(): SettingDefinitionItem {
+		const rules = [...this.toolkit.settings.conditionalFormats];
+		const files = this.toolkit.app.vault.getAllLoadedFiles?.() ?? [];
+		return {
+			type: 'list',
+			heading: 'Name rules',
+			cls: 'ft-name-rules',
+			emptyState: 'No name rules yet. Add one to style files and folders by their name.',
+			addItem: {
+				name: 'Add name rule',
+				action: () => {
+					void this.toolkit.addConditionalFormat().then((id) => {
+						this.update();
+						this.openRuleEditor(id, true);
+					});
+				},
+			},
+			onReorder: (from, to) => { void this.toolkit.reorderConditionalFormat(from, to).then(() => this.update()); },
+			onDelete: (index) => { const rule = rules[index]; if (rule) this.confirmDeleteRule(rule); },
+			items: rules.map((rule): SettingDefinition => ({
+				name: describeConditionalRule(rule),
+				aliases: ['name rule', 'conditional formatting', rule.pattern],
+				render: (setting) => this.renderRuleRow(setting, rule, files),
+			})),
+		};
+	}
+
+	private styledItemList(): SettingDefinitionItem {
+		const missingIndex = containingPathIndex(this.toolkit.missingAppearanceRoots().map((root) => root.path));
+		const paths = this.managedPaths().appearance.map((entry) => entry.path).filter((path) => missingIndex(path) === null);
+		return {
+			type: 'list',
+			heading: 'Styled items',
+			cls: 'ft-styled-items',
+			emptyState: 'No styled items yet. Right-click a file or folder and choose Edit appearance.',
+			...(paths.length > 0 ? { search: { placeholder: 'Search styled items…', match: (def: SettingDefinition, query: string) => def.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) } } : {}),
+			onDelete: (index) => { const path = paths[index]; if (path) this.confirmRemoveAppearance(path); },
+			items: paths.map((path): SettingDefinition => ({
+				name: path,
+				render: (setting) => this.renderStyledRow(setting, path),
+			})),
+		};
+	}
+
+	private missingItemsGroup(): SettingDefinitionItem {
+		const count = this.toolkit.missingAppearanceRoots().length;
+		return {
+			type: 'group',
+			cls: 'ft-missing-items',
+			visible: count > 0,
+			items: [{
+				name: 'Missing items',
+				desc: `${count === 1 ? '1 styled item was' : `${count} styled items were`} moved, renamed or deleted outside Obsidian.`,
+				aliases: ['reattach', 'moved', 'renamed'],
+				render: (setting) => {
+					setting.addButton((button) => button.setButtonText('Review…').onClick(() => new MissingItemsModal(this.toolkit, () => this.update()).open()));
+				},
+			}],
+		};
+	}
+
+	private hiddenItemList(): SettingDefinitionItem {
+		const hidden = this.managedPaths().hidden.map((entry) => entry.path);
+		return {
+			type: 'list',
+			heading: 'Hidden items',
+			cls: 'ft-hidden-items',
+			items: [
+				{
+					name: 'Show hidden items',
+					desc: hidden.length > 0 ? 'Show the items you hid, until you turn this off.' : 'Nothing is hidden yet. Right-click a file or folder and choose Hide.',
+					aliases: ['visibility', 'reveal'],
+					render: (setting) => {
+						setting.addToggle((toggle) => toggle
+							.setValue(this.toolkit.settings.showHiddenItems)
+							.onChange(async (value) => { await this.toolkit.setShowHiddenItems(value); }));
+					},
+				},
+				...hidden.map((path): SettingDefinition => ({
+					name: path,
+					render: (setting) => this.renderHiddenRow(setting, path),
+				})),
+			],
+		};
+	}
+
+	private nestedVaultGroup(): SettingDefinitionItem {
+		return {
+			type: 'group',
+			heading: 'Nested vaults',
+			items: [
+				{
+					name: 'Nested vaults',
+					desc: 'Show and save the colors of vault folders inside this vault.',
+					aliases: ['vault inside vault', 'nested', 'sub vault'],
+					render: (setting) => {
+						setting.addToggle((toggle) => toggle
+							.setValue(this.toolkit.settings.nestedVaults)
+							.onChange(async (value) => {
+								await this.toolkit.setNestedVaults(value);
+								this.refreshDomState();
+							}));
+					},
+				},
+				{
+					name: 'Vault marker',
+					desc: 'How folders that are vaults are marked.',
+					aliases: ['nested', 'vault icon', 'vault border'],
+					visible: () => this.toolkit.settings.nestedVaults,
+					render: (setting) => {
+						setting.addDropdown((dropdown) => dropdown
+							.addOptions({ both: 'Icon and border', icon: 'Icon', border: 'Border', off: 'Off' })
+							.setValue(this.toolkit.settings.vaultMarker)
+							.onChange(async (value) => { await this.toolkit.setVaultMarker(value); }));
+					},
+				},
+			],
+		};
+	}
+
+	private aboutGroup(): SettingDefinitionItem {
+		return {
+			type: 'group',
+			heading: ABOUT_AND_FEEDBACK.heading,
+			cls: 'ft-about',
+			items: [{
+				name: `${ABOUT_AND_FEEDBACK.name} ${this.toolkit.manifest.version}`,
+				desc: ABOUT_AND_FEEDBACK.description,
+				aliases: ['feedback', 'bug', 'feature request', 'website', 'mindful apps'],
+				render: (setting) => {
+					const link = (icon: string, label: string, url: string) => setting.addExtraButton((button) => button.setIcon(icon).setTooltip(label).onClick(() => openExternalLink(url)));
+					link('bug', ABOUT_AND_FEEDBACK.bugReportLabel, BUG_REPORT_URL);
+					link('lightbulb', ABOUT_AND_FEEDBACK.featureRequestLabel, FEATURE_REQUEST_URL);
+					link('puzzle', ABOUT_AND_FEEDBACK.morePluginsLabel, MORE_PLUGINS_URL);
+					link('globe', ABOUT_AND_FEEDBACK.websiteLabel, WEBSITE_URL);
+				},
+			}],
+		};
+	}
+
+	private managedPaths(): ReturnType<ManagedPathIndex['read']> {
+		return this.managedIndex.read(this.toolkit.settings, this.toolkit.managedPathsRevision?.() ?? '');
+	}
+
+	private renderRuleRow(setting: Setting, rule: ConditionalFormatRule, files: readonly TAbstractFile[]): void {
+		setting.settingEl.addClass('ft-list-row', 'ft-list-row--clickable');
+		const desc = setting.descEl;
+		desc.empty();
+		if (rule.pattern.trim()) {
+			const isFolder = rule.target !== 'file';
+			const name = conditionalSampleName(rule);
+			const tree = buildSampleRow(desc, name, samplePath(name, isFolder), isFolder);
+			styleConditionalSample(tree, this.toolkit.settings, rule);
+			desc.createSpan({ text: matchCountLabel(conditionalMatches(rule, files).length), cls: 'ft-list-row__meta' });
+		} else {
+			desc.createSpan({ text: 'Not used until it has a name pattern.', cls: 'ft-list-row__meta' });
 		}
-		return () => wrapper.remove();
+		setting.addExtraButton((button) => button.setIcon('pencil').setTooltip('Edit rule').onClick(() => this.openRuleEditor(rule.id)));
+		setting.settingEl.addEventListener('click', (event) => {
+			if ((event.target as HTMLElement).closest('.setting-item-control')) return;
+			this.openRuleEditor(rule.id);
+		});
+	}
+
+	private renderStyledRow(setting: Setting, path: string): void {
+		setting.settingEl.addClass('ft-list-row', 'ft-list-row--clickable');
+		const file = this.toolkit.app.vault.getAbstractFileByPath(path);
+		const isFolder = file instanceof TFolder;
+		const parts = path.split('/');
+		const name = parts.pop() ?? path;
+		setting.nameEl.empty();
+		const tree = buildSampleRow(setting.nameEl, isFolder ? name : name.replace(/\.md$/i, ''), path, isFolder);
+		stylePreviewRows(tree, this.toolkit.settings);
+		setting.setDesc(parts.join('/'));
+		const edit = (): void => new AppearanceModal(this.toolkit, path, () => this.update()).open();
+		setting.addExtraButton((button) => button.setIcon('pencil').setTooltip('Edit appearance').onClick(edit));
+		setting.settingEl.addEventListener('click', (event) => {
+			if ((event.target as HTMLElement).closest('.setting-item-control')) return;
+			edit();
+		});
+	}
+
+	private renderHiddenRow(setting: Setting, path: string): void {
+		setting.settingEl.addClass('ft-list-row');
+		const parts = path.split('/');
+		const name = parts.pop() ?? path;
+		const kind = this.toolkit.app.vault.getAbstractFileByPath(path) instanceof TFolder ? 'Folder' : 'File';
+		setting.setName(name).setDesc(parts.length > 0 ? `${kind} in ${parts.join('/')}` : kind);
+		setting.addExtraButton((button) => button.setIcon('eye').setTooltip('Unhide').onClick(() => {
+			void this.toolkit.unhidePath(path).then(() => this.update());
+		}));
+	}
+
+	private renderPresetSample(container: HTMLElement, rule: AppearanceRule): void {
+		container.empty();
+		const path = samplePath(PRESET_SAMPLE_NAME, true);
+		const tree = buildSampleRow(container, PRESET_SAMPLE_NAME, path, true);
+		stylePreviewTree(tree, {
+			...this.toolkit.settings,
+			appearanceRules: Object.create(null) as Record<string, AppearanceRule>,
+			conditionalFormats: [],
+		}, path, rule);
+	}
+
+	private renamePreset(preset: SavedPreset): void {
+		new PresetNameModal(this.toolkit.app, {
+			title: 'Rename preset',
+			initialName: preset.name,
+			submitLabel: 'Rename',
+			onSubmit: async (name) => { await this.toolkit.renamePreset(preset.id, name); this.update(); },
+		}).open();
+	}
+
+	private confirmDeletePreset(preset: SavedPreset): void {
+		new ConfirmRemoveModal(this.toolkit.app, preset.name, async () => {
+			await this.toolkit.deletePreset(preset.id);
+			this.update();
+		}, {
+			title: 'Delete preset?',
+			description: 'This deletes the saved preset. Files and folders that use its style keep it.',
+			confirmLabel: 'Delete preset',
+		}).open();
+	}
+
+	private confirmDeleteRule(rule: ConditionalFormatRule): void {
+		new ConfirmRemoveModal(this.toolkit.app, describeConditionalRule(rule), async () => {
+			await this.toolkit.removeConditionalFormat(rule.id);
+			this.update();
+		}, {
+			title: 'Delete name rule?',
+			description: 'This deletes the rule. Files and folders are not changed.',
+			confirmLabel: 'Delete rule',
+		}).open();
+	}
+
+	private confirmRemoveAppearance(path: string): void {
+		new ConfirmRemoveModal(this.toolkit.app, path, async () => {
+			await this.toolkit.removeAppearance(path);
+			this.update();
+		}).open();
 	}
 
 	private renderPalette(setting: Setting): () => void {
-		setting.setName('Color palette').setDesc('Palette assignments update globally; custom hex colors stay unchanged.');
 		setting.settingEl.addClass('ft-palette-setting');
 		const host = replaceOwnedRoot(setting.controlEl, 'ft-palette-picker');
 		const selected = paletteTemplate(this.toolkit.settings.paletteTemplateId);
@@ -257,569 +423,8 @@ export class FolderToolkitSettingTab extends PluginSettingTab {
 			color.style.setProperty('--ft-swatch', hex);
 		}
 	}
-
-	hide(): void {
-		for (const id of [...this.conditionalDrafts.keys()]) this.discardConditionalDraft(id);
-		super.hide();
-	}
-
-	private conditionalDraft(rule: ConditionalFormatRule): ConditionalFormatRule {
-		let draft = this.conditionalDrafts.get(rule.id);
-		if (!draft) {
-			draft = structuredClone(rule);
-			this.conditionalDrafts.set(rule.id, draft);
-		}
-		return draft;
-	}
-
-	private discardConditionalDraft(id: string): void {
-		this.conditionalDrafts.delete(id);
-		this.toolkit.clearConditionalFormatPreview(id);
-	}
-
-	/** Scrolls to the name rules now if they are on screen, or after the next render. */
-	revealConditionalFormats(): void {
-		const section = this.containerEl.querySelector<HTMLElement>('.ft-conditional-setting');
-		if (section?.isConnected) scrollToSection(section);
-		else this.pendingConditionalReveal = true;
-	}
-
-	private renderConditionalFormats(setting: Setting): () => void {
-		setting.setName('Name rules').setHeading();
-		setting.settingEl.addClass('ft-conditional-setting');
-		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-conditional-formats');
-		const controls = new AppearanceControlRenderer(this.toolkit);
-		wrapper.createDiv({ text: 'Style files and folders by name. When rules overlap, the later rule wins for each style.', cls: 'ft-card-hint' });
-		const add = wrapper.createEl('button', { cls: 'ft-conditional-add', attr: { type: 'button', 'aria-label': 'Add conditional formatting rule' } });
-		setIcon(add, 'plus');
-		add.createSpan({ text: 'Add rule' });
-		add.addEventListener('click', () => {
-			void this.toolkit.addConditionalFormat().then((id) => {
-				this.expandedConditionalIds.add(id);
-				this.pendingConditionalFocusId = id;
-				this.update();
-			});
-		});
-
-		if (this.pendingConditionalReveal) {
-			this.pendingConditionalReveal = false;
-			scrollToSection(setting.settingEl);
-		}
-
-		if (this.toolkit.settings.conditionalFormats.length === 0) {
-			wrapper.createDiv({ text: 'No name rules yet. Add a rule to style matching files or folders.', cls: 'ft-empty-state' });
-		}
-
-		const targetLabels: Record<ConditionalTarget, string> = { folder: 'Folders', file: 'Files', both: 'Files and folders' };
-		const matchLabels: Record<ConditionalMatch, string> = { equals: 'is exactly', startsWith: 'starts with', endsWith: 'ends with', contains: 'contains' };
-		for (const [index, rule] of this.toolkit.settings.conditionalFormats.entries()) {
-			const expanded = this.expandedConditionalIds.has(rule.id);
-			const shown = this.conditionalDrafts.get(rule.id) ?? rule;
-			const card = wrapper.createDiv(`ft-conditional-card${expanded ? ' is-expanded' : ''}`);
-			const header = card.createDiv('ft-conditional-summary-row');
-			const disclosure = header.createEl('button', {
-				cls: 'ft-conditional-disclosure',
-				attr: { type: 'button', 'aria-expanded': String(expanded), 'aria-controls': `ft-rule-editor-${rule.id}` },
-			});
-			const summary = disclosure.createSpan('ft-conditional-summary');
-			summary.createSpan({ text: targetLabels[shown.target], cls: 'ft-conditional-summary__target' });
-			summary.createSpan({ text: matchLabels[shown.match], cls: 'ft-conditional-summary__match' });
-			const patternSummary = summary.createSpan({ text: shown.pattern || 'Unnamed rule', cls: `ft-conditional-summary__pattern${shown.pattern ? '' : ' is-empty'}` });
-			const badges = summary.createSpan('ft-conditional-summary__badges');
-			const unsavedBadge = badges.createSpan({ text: 'Unsaved', cls: 'ft-style-badge ft-style-badge--unsaved' });
-			unsavedBadge.hidden = sameConditionalRule(shown, rule);
-			if (isFontEnabled(shown)) this.renderStyleBadge(badges, 'Font', shown.color);
-			if (isBackgroundEnabled(shown)) this.renderStyleBadge(badges, 'Background', shown.backgroundColor ?? shown.color);
-			if (isBorderEnabled(shown) && shown.border) {
-				this.renderStyleBadge(badges, shown.border.style === 'box' ? 'Border · Box' : 'Border · Rail', shown.border.color);
-			}
-			if (shown.bold) badges.createSpan({ text: 'B', cls: 'ft-style-badge ft-style-badge--bold', attr: { 'aria-label': 'Bold' } });
-			if (shown.strikethrough) badges.createSpan({ text: 'S', cls: 'ft-style-badge ft-style-badge--strike', attr: { 'aria-label': 'Strikethrough' } });
-			const chevron = disclosure.createSpan('ft-conditional-disclosure__chevron');
-			setIcon(chevron, expanded ? 'chevron-up' : 'chevron-down');
-			disclosure.addEventListener('click', () => {
-				if (expanded) this.expandedConditionalIds.delete(rule.id);
-				else this.expandedConditionalIds.add(rule.id);
-				this.update();
-			});
-
-			const actions = header.createDiv('ft-conditional-actions');
-			const moveUp = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Move ${rule.pattern || 'unnamed rule'} up`, title: 'Move up' } });
-			setIcon(moveUp, 'arrow-up');
-			moveUp.disabled = index === 0;
-			moveUp.addEventListener('click', () => { void this.toolkit.moveConditionalFormat(rule.id, -1).then(() => this.update()); });
-			const moveDown = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Move ${rule.pattern || 'unnamed rule'} down`, title: 'Move down' } });
-			setIcon(moveDown, 'arrow-down');
-			moveDown.disabled = index === this.toolkit.settings.conditionalFormats.length - 1;
-			moveDown.addEventListener('click', () => { void this.toolkit.moveConditionalFormat(rule.id, 1).then(() => this.update()); });
-			const hasDraft = !sameConditionalRule(shown, rule);
-			const duplicate = actions.createEl('button', {
-				cls: 'clickable-icon ft-conditional-duplicate',
-				attr: {
-					type: 'button',
-					'aria-label': `Duplicate rule for ${rule.pattern || 'unnamed pattern'}`,
-					title: hasDraft ? 'Duplicate the saved rule. Unsaved changes are not copied.' : 'Duplicate',
-				},
-			});
-			setIcon(duplicate, 'copy');
-			duplicate.addEventListener('click', () => {
-				void this.toolkit.duplicateConditionalFormat(rule.id).then((id) => {
-					if (id) {
-						this.expandedConditionalIds.add(id);
-						this.pendingConditionalFocusId = id;
-					}
-					this.update();
-				});
-			});
-			const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove rule for ${rule.pattern || 'unnamed pattern'}` } });
-			setIcon(remove, 'trash-2');
-			remove.addEventListener('click', () => {
-				new ConfirmRemoveModal(this.toolkit.app, rule.pattern || 'Unnamed rule', async () => {
-					await this.toolkit.removeConditionalFormat(rule.id);
-					this.conditionalDrafts.delete(rule.id);
-					this.expandedConditionalIds.delete(rule.id);
-					this.update();
-				}, {
-					title: 'Remove name rule?',
-					description: 'This removes the conditional formatting rule. Files and folders are not changed.',
-					confirmLabel: 'Remove rule',
-				}).open();
-			});
-			if (!expanded) continue;
-
-			const edit = this.conditionalDraft(rule);
-			const editor = card.createDiv({ cls: 'ft-conditional-editor', attr: { id: `ft-rule-editor-${rule.id}` } });
-			let refreshFooter = (): void => {};
-			let refreshSample = (): void => {};
-			const change = (rerender = false): void => {
-				this.toolkit.previewConditionalFormat(edit);
-				if (rerender) this.update();
-				else { refreshFooter(); refreshSample(); }
-			};
-			const meta = editor.createDiv('ft-conditional-meta-row');
-			const targetLabel = meta.createEl('label', { text: 'Apply to' });
-			const target = targetLabel.createEl('select', { attr: { 'aria-label': 'Apply rule to' } });
-			for (const [value, label] of Object.entries(targetLabels)) target.createEl('option', { text: label, value });
-			target.value = edit.target;
-			target.addEventListener('change', () => { edit.target = target.value as ConditionalTarget; change(true); });
-			const matchLabel = meta.createEl('label', { text: 'Name' });
-			const match = matchLabel.createEl('select', { attr: { 'aria-label': 'Name comparison' } });
-			for (const [value, label] of Object.entries(matchLabels)) match.createEl('option', { text: label.charAt(0).toUpperCase() + label.slice(1), value });
-			match.value = edit.match;
-			match.addEventListener('change', () => { edit.match = match.value as ConditionalMatch; change(true); });
-			const patternErrorId = `ft-rule-pattern-error-${index}`;
-			const patternLabel = meta.createEl('label', { text: 'Pattern' });
-			const pattern = patternLabel.createEl('input', {
-				type: 'text',
-				value: edit.pattern,
-				placeholder: '__system',
-				attr: { 'aria-label': 'Name pattern', 'aria-describedby': patternErrorId, spellcheck: 'false' },
-			});
-			const patternError = patternLabel.createSpan({
-				text: 'Enter a name pattern. Empty rules are ignored.',
-				cls: 'ft-field-error',
-				attr: { id: patternErrorId },
-			});
-			const validatePattern = (): boolean => {
-				const invalid = pattern.value.trim().length === 0;
-				pattern.toggleClass('is-invalid', invalid);
-				pattern.setAttribute('aria-invalid', String(invalid));
-				patternError.toggleClass('is-visible', invalid);
-				return !invalid;
-			};
-			validatePattern();
-			pattern.addEventListener('input', () => {
-				validatePattern();
-				edit.pattern = pattern.value;
-				patternSummary.setText(edit.pattern || 'Unnamed rule');
-				patternSummary.toggleClass('is-empty', !edit.pattern);
-				change();
-			});
-			pattern.addEventListener('keydown', (event) => {
-				if (event.key !== 'Enter') return;
-				event.preventDefault();
-				void saveDraft();
-			});
-			if (this.pendingConditionalFocusId === rule.id) {
-				this.pendingConditionalFocusId = null;
-				window.requestAnimationFrame(() => pattern.focus());
-			}
-
-			const sample = editor.createDiv({ cls: 'ft-conditional-preview', attr: { 'aria-label': 'Preview of this rule' } });
-			sample.createDiv({ text: 'Preview', cls: 'ft-live-preview__label' });
-			const sampleBody = sample.createDiv('ft-conditional-preview__body');
-			const sampleMatches = sample.createDiv({ cls: 'ft-conditional-preview__matches', attr: { role: 'status' } });
-			refreshSample = () => {
-				sampleBody.empty();
-				const tree = buildConditionalSample(sampleBody, edit);
-				if (tree) styleConditionalSample(tree, this.toolkit.settings, edit);
-				sampleMatches.setText(this.conditionalMatchSummary(edit));
-			};
-			refreshSample();
-
-			const styleGrid = editor.createDiv('ft-shared-style-grid');
-			const backgroundCard = styleGrid.createDiv('ft-color-card ft-color-card--background');
-			const backgroundHeader = backgroundCard.createDiv('ft-color-card__header');
-			backgroundHeader.createDiv({ text: 'Background', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
-			const backgroundToggle = backgroundHeader.createEl('label', { cls: 'ft-border-toggle' });
-			const backgroundCheck = backgroundToggle.createEl('input', { attr: { type: 'checkbox' } });
-			backgroundCheck.checked = isBackgroundEnabled(edit);
-			backgroundToggle.createSpan({ text: 'Enable background' });
-			backgroundCheck.addEventListener('change', () => { edit.backgroundEnabled = backgroundCheck.checked; change(true); });
-			const backgroundChoice = edit.backgroundColor ?? { kind: 'custom' as const, hex: '#A8ADB5', strength: 20 };
-			controls.renderColorControls(backgroundCard, {
-				selected: backgroundChoice,
-				defaultStrength: 20,
-				disabled: !backgroundCheck.checked,
-				onSelect: (choice, rerender) => {
-					if (!choice || choice.kind === 'none') return;
-					edit.backgroundColor = choice;
-					change(rerender);
-				},
-			});
-
-			const borderCard = styleGrid.createDiv('ft-color-card ft-color-card--border');
-			const borderHeader = borderCard.createDiv('ft-color-card__header');
-			borderHeader.createDiv({ text: 'Border', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
-			const borderToggle = borderHeader.createEl('label', { cls: 'ft-border-toggle' });
-			const borderCheck = borderToggle.createEl('input', { attr: { type: 'checkbox' } });
-			borderCheck.checked = isBorderEnabled(edit);
-			borderToggle.createSpan({ text: 'Enable border' });
-			const border = edit.border ?? { style: 'box' as const, color: { kind: 'preset' as const, slot: 0, strength: 42 }, thickness: 'thin' as const };
-			borderCheck.addEventListener('change', () => {
-				edit.borderEnabled = borderCheck.checked;
-				if (borderCheck.checked && !edit.border) edit.border = structuredClone(border);
-				change(true);
-			});
-			const borderStyles = borderCard.createDiv('ft-choice-row');
-			controls.choiceButton(borderStyles, 'Rounded box', border.style === 'box', () => {
-				edit.border = { ...(edit.border ?? border), style: 'box' };
-				change(true);
-			}, !borderCheck.checked);
-			controls.choiceButton(borderStyles, 'Vertical rail', border.style === 'rail', () => {
-				edit.border = { ...(edit.border ?? border), style: 'rail' };
-				change(true);
-			}, !borderCheck.checked);
-			const thickness = borderCard.createDiv('ft-choice-row');
-			for (const size of ['thin', 'medium', 'thick'] as const) {
-				controls.choiceButton(thickness, size.charAt(0).toUpperCase() + size.slice(1), border.thickness === size, () => {
-					edit.border = { ...(edit.border ?? border), thickness: size };
-					change(true);
-				}, !borderCheck.checked);
-			}
-			controls.renderColorControls(borderCard, {
-				selected: border.color,
-				defaultStrength: border.style === 'box' ? DEFAULT_APPEARANCE_STRENGTH.box : DEFAULT_APPEARANCE_STRENGTH.rail,
-				disabled: !borderCheck.checked,
-				onSelect: (choice, rerender) => {
-					if (!choice || choice.kind === 'none') return;
-					edit.border = { ...(edit.border ?? border), color: choice };
-					change(rerender);
-				},
-			});
-
-			const textCard = styleGrid.createDiv('ft-color-card ft-color-card--text');
-			const textHeader = textCard.createDiv('ft-color-card__header');
-			textHeader.createDiv({ text: 'Text', cls: 'ft-card-title', attr: { role: 'heading', 'aria-level': '3' } });
-			const fontToggle = textHeader.createEl('label', { cls: 'ft-border-toggle' });
-			const fontCheck = fontToggle.createEl('input', { attr: { type: 'checkbox' } });
-			fontCheck.checked = isFontEnabled(edit);
-			fontToggle.createSpan({ text: 'Font color' });
-			fontCheck.addEventListener('change', () => { edit.fontEnabled = fontCheck.checked; change(true); });
-			controls.renderColorControls(textCard, {
-				selected: edit.color,
-				defaultStrength: DEFAULT_APPEARANCE_STRENGTH.text,
-				includeWhite: true,
-				disabled: !fontCheck.checked,
-				onSelect: (choice, rerender) => {
-					if (!choice || choice.kind === 'none') return;
-					edit.color = choice;
-					change(rerender);
-				},
-			});
-			controls.renderTypography(textCard, edit.bold === true, edit.strikethrough === true, (bold, strikethrough) => {
-				edit.bold = bold;
-				edit.strikethrough = strikethrough;
-				change(true);
-			});
-
-			const footer = card.createDiv('ft-conditional-footer');
-			const status = footer.createSpan({ cls: 'ft-conditional-status', attr: { role: 'status' } });
-			const error = footer.createSpan({ cls: 'ft-field-error', attr: { role: 'alert' } });
-			const cancel = footer.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
-			const saveButton = footer.createEl('button', { text: 'Save', cls: 'mod-cta', attr: { type: 'button' } });
-			refreshFooter = () => {
-				const dirty = !sameConditionalRule(edit, rule);
-				status.setText(dirty ? 'Unsaved changes' : 'All changes saved');
-				status.toggleClass('is-dirty', dirty);
-				unsavedBadge.hidden = !dirty;
-				cancel.disabled = !dirty;
-				saveButton.disabled = !dirty || this.savingConditionalIds.has(rule.id);
-			};
-			const saveDraft = async (): Promise<void> => {
-				if (sameConditionalRule(edit, rule) || this.savingConditionalIds.has(rule.id)) return;
-				const snapshot = structuredClone(edit);
-				this.savingConditionalIds.add(rule.id);
-				saveButton.disabled = true;
-				try {
-					await this.toolkit.updateConditionalFormat(rule.id, snapshot);
-					if (sameConditionalRule(this.conditionalDrafts.get(rule.id) ?? edit, snapshot)) this.discardConditionalDraft(rule.id);
-					this.update();
-				} catch {
-					error.setText('This rule could not be saved. Try again.');
-					error.addClass('is-visible');
-					saveButton.disabled = false;
-				} finally { this.savingConditionalIds.delete(rule.id); this.update(); }
-			};
-			cancel.addEventListener('click', () => {
-				this.discardConditionalDraft(rule.id);
-				this.update();
-			});
-			saveButton.addEventListener('click', () => { void saveDraft(); });
-			refreshFooter();
-		}
-
-		return () => {
-			controls.dispose();
-			wrapper.remove();
-			setting.settingEl.removeClass('ft-conditional-setting');
-		};
-	}
-
-	/** Says how many items in this vault the rule matches, with a few of their names. */
-	private conditionalMatchSummary(rule: ConditionalFormatRule): string {
-		if (!rule.pattern.trim()) return '';
-		const files = this.toolkit.app.vault.getAllLoadedFiles?.() ?? [];
-		const matches = files.filter((file) => file.path !== '/' && file.path !== '' && matchesConditionalFormat(file.path, file instanceof TFolder, rule));
-		if (matches.length === 0) return 'Matches no items in this vault.';
-		const names = matches.slice(0, 3).map((file) => file.name).join(', ');
-		const more = matches.length > 3 ? ', …' : '';
-		return `Matches ${matches.length} ${matches.length === 1 ? 'item' : 'items'} in this vault: ${names}${more}`;
-	}
-
-	private renderStyleBadge(container: HTMLElement, label: string, choice: ColorChoice): void {
-		const resolved = resolveChoice(choice, this.toolkit.settings.paletteTemplateId);
-		const badge = container.createSpan({ text: label, cls: 'ft-style-badge' });
-		if (resolved) badge.style.setProperty('--ft-rule-color', resolved.hex);
-	}
-
-	private renderNestedVaultsToggle(setting: Setting): void {
-		setting.controlEl.empty();
-		setting
-			.setName('Nested vaults')
-			.setDesc('When a folder is itself a vault that uses this plugin, show its colors here and save changes to its items in that vault\'s settings.')
-			.addToggle((toggle) => toggle
-				.setValue(this.toolkit.settings.nestedVaults)
-				.onChange(async (value) => {
-					await this.toolkit.setNestedVaults(value);
-					this.update();
-				}));
-	}
-
-	private renderVaultMarker(setting: Setting): void {
-		setting.controlEl.empty();
-		setting
-			.setName('Vault marker')
-			.setDesc('Mark folders that are themselves vaults. Needs nested vaults on.')
-			.addDropdown((dropdown) => dropdown
-				.addOption('both', 'Icon and border')
-				.addOption('icon', 'Icon')
-				.addOption('border', 'Border')
-				.addOption('off', 'Off')
-				.setValue(this.toolkit.settings.vaultMarker)
-				.onChange(async (value) => {
-					await this.toolkit.setVaultMarker(value);
-					this.update();
-				}));
-	}
-
-	private renderHiddenToggle(setting: Setting): void {
-		setting.controlEl.empty();
-		setting
-			.setName('Show hidden items')
-			.setDesc('Temporarily reveal items marked as permanently hidden.')
-			.addToggle((toggle) => toggle
-				.setValue(this.toolkit.settings.showHiddenItems)
-				.onChange(async (value) => {
-					await this.toolkit.setShowHiddenItems(value);
-					this.update();
-				}));
-	}
-
-	private renderPathManager(setting: Setting): () => void {
-		setting.setName('Managed paths').setHeading();
-		const wrapper = replaceOwnedRoot(setting.settingEl, 'ft-settings-manager');
-		const search = wrapper.createEl('input', {
-			type: 'search',
-			placeholder: 'Search files and folders…',
-			cls: 'ft-settings-search',
-			attr: { 'aria-label': 'Search managed paths', autocomplete: 'off' },
-		});
-		search.value = this.search;
-		const results = wrapper.createDiv('ft-settings-results');
-		let indexed: ReturnType<ManagedPathIndex['read']> | null = null;
-		let missing: Array<MissingRoot & { search: string }> = [];
-		let available: Array<{ path: string; search: string }> = [];
-		const cards = new Map<string, HTMLElement>();
-		const renderResults = (): void => {
-			this.search = search.value;
-			const query = this.search.trim().toLocaleLowerCase();
-			const next = this.managedIndex.read(this.toolkit.settings, this.toolkit.managedPathsRevision?.() ?? '');
-			if (next !== indexed) {
-				indexed = next; cards.clear();
-				missing = this.toolkit.missingAppearanceRoots().map(root => ({ ...root, search: root.path.toLocaleLowerCase() }));
-				const missingIndex = containingPathIndex(missing.map(root => root.path));
-				available = next.appearance.filter(entry => missingIndex(entry.path) === null);
-			}
-			results.empty();
-			this.renderMissingRules(results, missing.filter(entry => entry.search.includes(query)), renderResults, missing.length > 0);
-			this.renderAppearanceRules(results, available.filter(entry => entry.search.includes(query)).map(entry => entry.path), renderResults, cards);
-			this.renderHiddenPaths(results, next.hidden.filter(entry => entry.search.includes(query)).map(entry => entry.path), renderResults);
-		};
-		const searchChanged = (): void => { this.pathPages.clear(); renderResults(); };
-		search.addEventListener('input', searchChanged);
-		renderResults();
-		return () => {
-			search.removeEventListener('input', searchChanged);
-			cards.clear();
-			wrapper.remove();
-		};
-	}
-
-	/** Lists rules whose item was moved or deleted outside Obsidian. */
-	private renderMissingRules(container: HTMLElement, shown: readonly MissingRoot[], refresh: () => void, hasMissing: boolean): void {
-		if (shown.length === 0 && !hasMissing) return;
-		const section = this.ruleSection(container, 'Missing items', shown.length);
-		section.addClass('ft-rule-section--missing');
-		section.createDiv({ text: MISSING_ITEMS_HINT, cls: 'ft-card-hint' });
-		if (shown.length === 0) this.emptyState(section, 'No missing items match this search.');
-		else renderMissingItemCards(section, this.toolkit, this.pathPage(section, 'Missing items', shown, refresh), () => this.update());
-	}
-
-	private renderAppearanceRules(container: HTMLElement, paths: string[], refresh: () => void, cards: Map<string, HTMLElement>): void {
-		const section = this.ruleSection(container, 'Appearance rules', paths.length);
-		if (paths.length === 0) {
-			cards.clear();
-			this.emptyState(section, this.search ? 'No appearance rules match this search.' : 'No appearance rules yet. Right-click a file or folder and choose Edit appearance.');
-			return;
-		}
-		const shown = this.pathPage(section, 'Appearance rules', paths, refresh);
-		const keep = new Set(shown);
-		for (const key of cards.keys()) if (!keep.has(key)) cards.delete(key);
-		for (const path of shown) {
-			let card = cards.get(path);
-			if (!card) { card = this.renderAppearanceCard(section, path, this.toolkit.settings.appearanceRules[path]); cards.set(path, card); }
-			else section.append(card);
-		}
-	}
-
-	private pathPage<T>(section: HTMLElement, key: string, items: readonly T[], refresh: () => void): readonly T[] {
-		const size = 100, finalPage = Math.max(0, Math.ceil(items.length / size) - 1);
-		const page = Math.min(this.pathPages.get(key) ?? 0, finalPage); this.pathPages.set(key, page);
-		if (items.length > size) {
-			const controls = section.createDiv('ft-managed-pagination');
-			controls.createSpan({ text: `Showing ${page * size + 1}–${Math.min((page + 1) * size, items.length)} of ${items.length}.`, attr: { role: 'status' } });
-			const previous = controls.createEl('button', { text: 'Previous', attr: { type: 'button', 'aria-label': `Previous ${key.toLocaleLowerCase()}` } });
-			const container = section.parentElement;
-			const focusPage = (label: string): void => {
-				const requested = container?.querySelector<HTMLButtonElement>(`button[aria-label="${label} ${key.toLocaleLowerCase()}"]`);
-				const alternative = container?.querySelector<HTMLButtonElement>(`button[aria-label="${label === 'Next' ? 'Previous' : 'Next'} ${key.toLocaleLowerCase()}"]`);
-				(requested?.disabled ? alternative : requested)?.focus();
-			};
-			previous.disabled = page === 0; previous.addEventListener('click', () => { this.pathPages.set(key, page - 1); refresh(); focusPage('Previous'); });
-			const next = controls.createEl('button', { text: 'Next', attr: { type: 'button', 'aria-label': `Next ${key.toLocaleLowerCase()}` } });
-			next.disabled = page === finalPage; next.addEventListener('click', () => { this.pathPages.set(key, page + 1); refresh(); focusPage('Next'); });
-		}
-		return items.slice(page * size, (page + 1) * size);
-	}
-
-	private renderAppearanceCard(container: HTMLElement, path: string, rule: AppearanceRule): HTMLElement {
-		const card = container.createDiv('ft-rule-card');
-		const identity = card.createDiv('ft-rule-card__identity');
-		const { name, parent } = this.splitPath(path);
-		identity.createDiv({ text: name, cls: 'ft-rule-card__name' });
-		identity.createDiv({ text: parent, cls: 'ft-rule-card__path' });
-		const previews = card.createDiv('ft-rule-card__previews');
-		this.renderEffectPreview(previews, 'Text', rule.text?.color);
-		this.renderEffectPreview(previews, 'Background', rule.background?.choice);
-		if (rule.border && 'kind' in rule.border) this.renderEffectPreview(previews, 'Border', { kind: 'none' });
-		else this.renderEffectPreview(previews, 'Border', rule.border?.color);
-		const textStyles = rule.text?.inheritTypography ? ['Inherited typography'] : [rule.text?.bold ? 'Bold' : null, rule.text?.strikethrough ? 'Strikethrough' : null].filter((style): style is string => style !== null);
-		if (textStyles.length > 0) previews.createDiv({ text: `Text style: ${textStyles.join(' · ')}`, cls: 'ft-rule-preview' });
-		if (rule.tabs !== undefined) previews.createDiv({ text: rule.tabs ? 'Note tabs: shown' : 'Note tabs: hidden', cls: 'ft-rule-preview' });
-
-		const actions = card.createDiv('ft-rule-card__actions');
-		const edit = actions.createEl('button', { text: 'Edit', attr: { type: 'button', title: `Edit appearance for ${name}` } });
-		edit.addEventListener('click', () => new AppearanceModal(this.toolkit, path, () => this.update()).open());
-		const remove = actions.createEl('button', { cls: 'clickable-icon', attr: { type: 'button', 'aria-label': `Remove appearance rule for ${name}` } });
-		setIcon(remove, 'trash-2');
-		remove.addEventListener('click', () => {
-			new ConfirmRemoveModal(this.toolkit.app, path, async () => {
-				await this.toolkit.removeAppearance(path);
-				this.update();
-			}).open();
-		});
-		return card;
-	}
-
-	private renderHiddenPaths(container: HTMLElement, paths: string[], refresh: () => void): void {
-		const section = this.ruleSection(container, 'Hidden items', paths.length);
-		if (paths.length === 0) {
-			this.emptyState(section, this.search ? 'No hidden items match this search.' : 'No hidden items. Right-click a file or folder and choose Hide.');
-			return;
-		}
-		for (const path of this.pathPage(section, 'Hidden items', paths, refresh)) {
-			const card = section.createDiv('ft-rule-card ft-rule-card--hidden');
-			const { name, parent } = this.splitPath(path);
-			const identity = card.createDiv('ft-rule-card__identity');
-			identity.createDiv({ text: name, cls: 'ft-rule-card__name' });
-			const file = this.toolkit.app.vault.getAbstractFileByPath(path);
-			identity.createDiv({ text: `${parent} · ${file instanceof TFolder ? 'Folder' : 'File'}`, cls: 'ft-rule-card__path' });
-			const actions = card.createDiv('ft-rule-card__actions');
-			const unhide = actions.createEl('button', { text: 'Unhide', attr: { type: 'button' } });
-			unhide.addEventListener('click', () => { void this.toolkit.unhidePath(path).then(() => this.update()); });
-		}
-	}
-
-	private renderEffectPreview(container: HTMLElement, label: string, choice: ColorChoice | undefined): void {
-		const preview = container.createDiv('ft-rule-preview');
-		const color = choice ? resolveChoice(choice, this.toolkit.settings.paletteTemplateId) : null;
-		if (color) {
-			const dot = preview.createSpan('ft-rule-preview__dot');
-			dot.style.setProperty('--ft-preview-color', color.hex);
-		}
-		const strength = color?.strength === undefined ? '' : ` · ${color.strength}% strength`;
-		preview.createSpan({ text: `${label}: ${choice?.kind === 'none' ? 'None' : color ? `${color.hex}${strength}` : 'Inherit'}` });
-	}
-
-	private ruleSection(container: HTMLElement, title: string, count: number): HTMLElement {
-		const section = container.createEl('section', { cls: 'ft-rule-section' });
-		const header = section.createDiv('ft-rule-section__header');
-		header.createDiv({ text: title, cls: 'ft-rule-section__title', attr: { role: 'heading', 'aria-level': '3' } });
-		header.createSpan({ text: String(count), cls: 'ft-rule-section__count', attr: { 'aria-label': `${count} items` } });
-		return section;
-	}
-
-	private emptyState(container: HTMLElement, text: string): void {
-		container.createDiv({ text, cls: 'ft-empty-state' });
-	}
-
-	private splitPath(path: string): { name: string; parent: string } {
-		const parts = path.split('/');
-		return { name: parts.pop() ?? path, parent: parts.join('/') || 'Vault root' };
-	}
-
 }
 
 function openExternalLink(url: string): void {
 	window.open(url, '_blank', 'noopener,noreferrer');
-}
-
-function scrollToSection(section: HTMLElement): void {
-	// Wait one frame so the settings modal finishes layout before scrolling.
-	window.requestAnimationFrame(() => section.scrollIntoView({ block: 'start' }));
-}
-
-function sameConditionalRule(a: ConditionalFormatRule, b: ConditionalFormatRule): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
 }

@@ -51,7 +51,8 @@ export function renderMissingItemCards(container: HTMLElement, host: MissingItem
 
 /** Dialog opened by the "Relink missing items" command. */
 export class MissingItemsModal extends Modal {
-	constructor(private readonly host: MissingItemsHost) {
+	/** `onDone` runs after the dialog closes, so a list that shows missing items can refresh. */
+	constructor(private readonly host: MissingItemsHost, private readonly onDone?: () => void) {
 		super(host.app);
 	}
 
@@ -63,6 +64,7 @@ export class MissingItemsModal extends Modal {
 
 	onClose(): void {
 		this.contentEl.empty();
+		this.onDone?.();
 	}
 
 	private render(): void {

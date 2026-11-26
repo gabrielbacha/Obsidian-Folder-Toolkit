@@ -37,6 +37,7 @@ export default class FolderToolkitPlugin extends Plugin {
 	private explorer!: ExplorerManager;
 	private tabs!: TabManager;
 	private settingTab!: FolderToolkitSettingTab;
+	private settingsTabRefresh?: number;
 	private focusPath: string | null = null;
 	private readonly appearancePreview = new AppearancePreviewStore();
 	private nested!: NestedVaultStore;
@@ -78,9 +79,9 @@ export default class FolderToolkitPlugin extends Plugin {
 			this.tabs.reconcileSoon();
 		}));
 		this.registerEvent(this.app.workspace.on('file-open', () => this.tabs.reconcileSoon()));
-		this.registerEvent(this.app.vault.on('create', () => { this.managedPathsEpoch += 1; }));
-		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => { this.managedPathsEpoch += 1; void this.handleRename(file, oldPath); }));
-		this.registerEvent(this.app.vault.on('delete', (file) => { this.managedPathsEpoch += 1; void this.handleDelete(file); }));
+		this.registerEvent(this.app.vault.on('create', () => { this.managedPathsEpoch += 1; this.refreshSettingsTab(); }));
+		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => { this.managedPathsEpoch += 1; this.refreshSettingsTab(); void this.handleRename(file, oldPath); }));
+		this.registerEvent(this.app.vault.on('delete', (file) => { this.managedPathsEpoch += 1; this.refreshSettingsTab(); void this.handleDelete(file); }));
 		// A nested vault's settings change when it is edited in its own window. Read them again when this window gets focus.
 		this.registerDomEvent(window, 'focus', () => void this.refreshNestedVaults());
 
@@ -119,7 +120,7 @@ export default class FolderToolkitPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'open-conditional-formatting',
-			name: 'Open conditional formatting rules',
+			name: 'Open name rules',
 			callback: () => this.openConditionalFormatting(),
 		});
 
@@ -144,6 +145,7 @@ export default class FolderToolkitPlugin extends Plugin {
 				this.nested.invalidate();
 				this.explorer.reconcileSoon();
 				this.tabs.reconcileSoon();
+				this.refreshSettingsTab();
 			} catch (error) {
 				if (this.unloaded || generation !== this.settingsGeneration) return;
 				this.settingsReadOnlyError = error instanceof Error ? error.message : String(error);
@@ -156,6 +158,8 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	onunload(): void {
 		this.unloaded = true;
+		if (this.settingsTabRefresh !== undefined) window.clearTimeout(this.settingsTabRefresh);
+		this.settingsTabRefresh = undefined;
 		for (const editor of [...this.appearanceEditors ?? []]) editor.close();
 		this.appearanceEditors?.clear();
 		this.nested?.dispose();
@@ -167,7 +171,7 @@ export default class FolderToolkitPlugin extends Plugin {
 	openConditionalFormatting(): void {
 		const modal = settingsModal(this.app);
 		if (!modal) {
-			new Notice('Could not open the conditional formatting settings.');
+			new Notice('Could not open the name rules in settings.');
 			return;
 		}
 		modal.open();
@@ -570,11 +574,16 @@ export default class FolderToolkitPlugin extends Plugin {
 
 	async moveConditionalFormat(id: string, direction: -1 | 1): Promise<void> {
 		const index = this.settings.conditionalFormats.findIndex((rule) => rule.id === id);
-		const target = index + direction;
-		if (index < 0 || target < 0 || target >= this.settings.conditionalFormats.length) return;
-		const [rule] = this.settings.conditionalFormats.splice(index, 1);
+		if (index >= 0) await this.reorderConditionalFormat(index, index + direction);
+	}
+
+	/** Moves the name rule at `from` to `to`. Later rules win where rules overlap. */
+	async reorderConditionalFormat(from: number, to: number): Promise<void> {
+		const rules = this.settings.conditionalFormats;
+		if (from === to || from < 0 || to < 0 || from >= rules.length || to >= rules.length) return;
+		const [rule] = rules.splice(from, 1);
 		if (!rule) return;
-		this.settings.conditionalFormats.splice(target, 0, rule);
+		rules.splice(to, 0, rule);
 		await this.persist();
 	}
 	async removeConditionalFormat(id: string): Promise<void> {
@@ -789,6 +798,18 @@ export default class FolderToolkitPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Obsidian builds a declarative settings tab from its definitions once and keeps them, also across reopening
+	 * settings. The tab's lists come from the plugin's data and the vault, so rebuild them after either changes.
+	 */
+	private refreshSettingsTab(): void {
+		if (this.settingsTabRefresh !== undefined || this.unloaded) return;
+		this.settingsTabRefresh = window.setTimeout(() => {
+			this.settingsTabRefresh = undefined;
+			if (!this.unloaded) this.settingTab?.update();
+		}, 0);
+	}
+
 	private settingsDirectory(): string { return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`; }
 
 	private async persist(): Promise<void> {
@@ -807,6 +828,7 @@ export default class FolderToolkitPlugin extends Plugin {
 			this.nested?.invalidate();
 			this.explorer.reconcileSoon();
 			this.tabs.reconcileSoon();
+			this.refreshSettingsTab();
 		});
 		this.saveQueue = task.catch(() => undefined);
 		await task;

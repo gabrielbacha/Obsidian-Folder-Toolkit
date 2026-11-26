@@ -40,6 +40,26 @@ describe('workspace refresh events', () => {
 		expect(tabReconcile).toHaveBeenCalledOnce();
 	});
 
+	it('rebuilds the settings tab once after data or vault changes', async () => {
+		vi.useFakeTimers();
+		try {
+			const update = vi.fn();
+			const plugin = Object.create(FolderToolkitPlugin.prototype) as FolderToolkitPlugin;
+			Object.assign(plugin, { settingTab: { update } });
+			const refresh = plugin as unknown as { refreshSettingsTab(): void };
+			refresh.refreshSettingsTab();
+			refresh.refreshSettingsTab();
+			expect(update).not.toHaveBeenCalled();
+			await vi.runAllTimersAsync();
+			expect(update).toHaveBeenCalledOnce();
+			refresh.refreshSettingsTab();
+			await vi.runAllTimersAsync();
+			expect(update).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	describe("conditional rule ordering", () => {
 		it("moves a rule without changing its id and persists once", async () => {
 			const persist = vi.fn().mockResolvedValue(undefined);
